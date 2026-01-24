@@ -221,6 +221,21 @@ curl https://[SEU_DOMINIO]/health
 railway run curl http://localhost:3000/health
 ```
 
+### Shopee: obter `shop_id` pelo terminal
+
+> Requer que o Redirect URL esteja cadastrado/whitelist no painel Shopee Partner.
+
+```powershell
+# Gera a URL de autorização, aguarda o callback e imprime o shop_id
+pwsh ./shopee-get-shop-id.ps1
+
+# (Opcional) abre o navegador automaticamente
+pwsh ./shopee-get-shop-id.ps1 -OpenBrowser
+
+# (Opcional) também seta `SHOPEE_SHOP_ID` no Railway via CLI
+pwsh ./shopee-get-shop-id.ps1 -SetRailwayVar
+```
+
 ## 📦 GESTÃO DE DEPENDÊNCIAS
 
 ### NPM/Yarn
