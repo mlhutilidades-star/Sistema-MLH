@@ -9,7 +9,7 @@ import { config } from '../../shared/config';
 export interface ShopeeAuthParams {
   partnerId: number;
   partnerKey: string;
-  shopId: number;
+  shopId?: number;
   path: string;
   accessToken?: string;
 }
@@ -25,14 +25,17 @@ export function generateShopeeSignature(params: ShopeeAuthParams): {
   const { partnerId, partnerKey, shopId, path, accessToken } = params;
 
   // Construir base string conforme documentação Shopee
-  // Base string format: partner_id + path + timestamp + access_token + shop_id
+  // Base string format: partner_id + path + timestamp + access_token? + shop_id?
+  // (para alguns endpoints, access_token e/ou shop_id não entram na assinatura)
   let baseString = `${partnerId}${path}${timestamp}`;
 
   if (accessToken) {
     baseString += accessToken;
   }
 
-  baseString += shopId;
+  if (typeof shopId === 'number' && shopId > 0) {
+    baseString += shopId;
+  }
 
   // Gerar HMAC-SHA256
   const sign = crypto
@@ -51,6 +54,10 @@ export function buildShopeeUrl(
   params: Record<string, any> = {},
   accessToken?: string
 ): string {
+  if (!config.shopee.shopId || config.shopee.shopId <= 0) {
+    throw new Error('SHOPEE_SHOP_ID não configurado');
+  }
+
   const { sign, timestamp } = generateShopeeSignature({
     partnerId: config.shopee.partnerId,
     partnerKey: config.shopee.partnerKey,
@@ -78,11 +85,12 @@ export function buildShopeeUrl(
  * Gerar URL de autorização OAuth2
  */
 export function generateAuthorizationUrl(redirectUrl: string): string {
-  const path = '/auth/authorize';
+  // Shopee Partner v2 OAuth2: /shop/auth_partner
+  // Signature base string: partner_id + path + timestamp
+  const path = '/shop/auth_partner';
   const { sign, timestamp } = generateShopeeSignature({
     partnerId: config.shopee.partnerId,
     partnerKey: config.shopee.partnerKey,
-    shopId: config.shopee.shopId,
     path,
   });
 
