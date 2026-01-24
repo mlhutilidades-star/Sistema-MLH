@@ -5,7 +5,6 @@ const router = Router();
 
 type LatestShopeeOauth = {
   shopId?: number;
-  code?: string;
   receivedAt: string;
 };
 
@@ -44,7 +43,6 @@ router.get('/oauth/callback', (req: Request, res: Response) => {
 
   latest = {
     shopId: Number.isFinite(shopId) ? shopId : undefined,
-    code,
     receivedAt: new Date().toISOString(),
   };
 
@@ -53,7 +51,7 @@ router.get('/oauth/callback', (req: Request, res: Response) => {
     success: true,
     receivedAt: latest.receivedAt,
     shopId: latest.shopId,
-    hasCode: !!latest.code,
+    hasCode: !!code,
     message: 'Callback Shopee recebido. Agora é possível configurar SHOPEE_SHOP_ID no Railway.',
   });
 });
@@ -61,7 +59,12 @@ router.get('/oauth/callback', (req: Request, res: Response) => {
 router.get('/oauth/last', (_req: Request, res: Response) => {
   res.json({
     success: true,
-    latest,
+    latest: latest
+      ? {
+          shopId: latest.shopId,
+          receivedAt: latest.receivedAt,
+        }
+      : null,
   });
 });
 
