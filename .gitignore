@@ -1,8 +1,11 @@
 # Dependencies
 node_modules/
-package-lock.json
 yarn.lock
 pnpm-lock.yaml
+
+# Keep npm lockfiles for reproducible builds
+!package-lock.json
+!backend/package-lock.json
 
 # Build
 dist/
