@@ -1,0 +1,167 @@
+// ==========================================
+// SISTEMA MLH - SCHEMA PRISMA COMPLETO
+// PostgreSQL Database Schema
+// ==========================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==========================================
+// BASE_PRODUTOS - Catálogo de produtos
+// ==========================================
+model Produto {
+  id            String   @id @default(cuid())
+  sku           String   @unique
+  descricao     String
+  ncm           String?
+  custoReal     Float    // Calculado por fórmula complexa
+  precoVenda    Float?
+  idTiny        String?  @unique
+  estoqueTiny   Int?
+  idShopee      String?
+  estoqueShopee Int?
+  ativo         Boolean  @default(true)
+  criadoEm      DateTime @default(now())
+  atualizadoEm  DateTime @updatedAt
+
+  @@map("produtos")
+  @@index([sku])
+  @@index([idTiny])
+}
+
+// ==========================================
+// FINANCEIRO - Contas a Pagar
+// ==========================================
+model ContaPagar {
+  id            String   @id @default(cuid())
+  vencimento    DateTime
+  descricao     String
+  fornecedor    String
+  categoria     String
+  valor         Float
+  status        String   @default("PENDENTE") // PENDENTE, PAGO, VENCIDO
+  linkPdf       String?
+  dataPagamento DateTime?
+  idTiny        String?  @unique
+  observacoes   String?
+  criadoEm      DateTime @default(now())
+  atualizadoEm  DateTime @updatedAt
+
+  @@map("contas_pagar")
+  @@index([vencimento])
+  @@index([status])
+}
+
+// ==========================================
+// FINANCEIRO - Contas a Receber
+// ==========================================
+model ContaReceber {
+  id            String   @id @default(cuid())
+  previsao      DateTime
+  cliente       String
+  categoria     String
+  pedidoId      String?
+  valorBruto    Float
+  taxas         Float    @default(0)
+  custoAds      Float    @default(0) // Rateado por receita
+  liquido       Float    // valorBruto - taxas - custoAds
+  status        String   @default("PENDENTE") // PENDENTE, RECEBIDO
+  dataRecebimento DateTime?
+  idTiny        String?  @unique
+  idShopee      String?
+  criadoEm      DateTime @default(now())
+  atualizadoEm  DateTime @updatedAt
+
+  @@map("contas_receber")
+  @@index([previsao])
+  @@index([status])
+}
+
+// ==========================================
+// CONCILIAÇÃO - Extrato Bancário
+// ==========================================
+model ExtratoBanco {
+  id            String   @id @default(cuid())
+  data          DateTime
+  descricao     String
+  valor         Float
+  saldo         Float
+  categoria     String?  // Preenchido por regras
+  conciliado    Boolean  @default(false)
+  contaPagarId  String?
+  contaReceberId String?
+  observacoes   String?
+  criadoEm      DateTime @default(now())
+  atualizadoEm  DateTime @updatedAt
+
+  @@map("extrato_banco")
+  @@index([data])
+  @@index([conciliado])
+}
+
+// ==========================================
+// CONCILIAÇÃO - Regras de Categorização
+// ==========================================
+model RegraConciliacao {
+  id            String   @id @default(cuid())
+  padrao        String   // Regex ou palavra-chave
+  categoria     String
+  tipo          String   // RECEITA, DESPESA
+  prioridade    Int      @default(1)
+  ativo         Boolean  @default(true)
+  descricao     String?
+  criadoEm      DateTime @default(now())
+  atualizadoEm  DateTime @updatedAt
+
+  @@map("regras_conciliacao")
+  @@index([ativo])
+  @@index([prioridade])
+}
+
+// ==========================================
+// M10_CONSUMO_ADS - Shopee Ads Performance
+// ==========================================
+model ConsumoAds {
+  id            String   @id @default(cuid())
+  data          DateTime @db.Date
+  campanhaId    String
+  campanhaNome  String?
+  impressoes    Int
+  cliques       Int
+  gasto         Float
+  pedidos       Int
+  gmv           Float    // Gross Merchandise Value
+  roas          Float?   // Return on Ad Spend (GMV / Gasto)
+  ctr           Float?   // Click-Through Rate
+  cpc           Float?   // Cost per Click
+  criadoEm      DateTime @default(now())
+
+  @@map("consumo_ads")
+  @@unique([data, campanhaId])
+  @@index([data])
+}
+
+// ==========================================
+// LOGS DE SINCRONIZAÇÃO
+// ==========================================
+model LogSync {
+  id            String   @id @default(cuid())
+  tipo          String   // PRODUTOS, FINANCEIRO, ADS, PEDIDOS
+  status        String   // SUCESSO, ERRO, PARCIAL
+  origem        String   // TINY, SHOPEE
+  mensagem      String?
+  detalhes      String?  @db.Text
+  registros     Int      @default(0)
+  duracaoMs     Int?
+  criadoEm      DateTime @default(now())
+
+  @@map("logs_sync")
+  @@index([tipo])
+  @@index([criadoEm])
+}

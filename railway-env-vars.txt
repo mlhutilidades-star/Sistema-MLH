@@ -1,0 +1,28 @@
+# ==========================================
+# VARIÁVEIS DE AMBIENTE - RAILWAY
+# Configure no painel: https://railway.com/project/12e34a8b-1ad0-4204-bd2d-2de4eb73f88f
+# ==========================================
+
+# Geradas automaticamente
+NODE_ENV=production
+PORT=3000
+JWT_SECRET=ToXRCbVAWnGPsTA2q0Se0+szfhhbLVk86S6bVrVYX6o=
+
+# Database (criado automaticamente pelo Railway PostgreSQL)
+DATABASE_URL=postgresql://...
+
+# Tiny ERP v3 (OBRIGATÓRIO - Obter em https://tiny.com.br)
+TINY_API_KEY=SEU_TOKEN_TINY_AQUI
+TINY_BASE_URL=https://api.tiny.com.br/api/v3
+
+# Shopee Open API v2 (OBRIGATÓRIO - Obter em https://open.shopee.com)
+SHOPEE_PARTNER_ID=SEU_PARTNER_ID_AQUI
+SHOPEE_PARTNER_KEY=SEU_PARTNER_KEY_AQUI
+SHOPEE_SHOP_ID=SEU_SHOP_ID_AQUI
+SHOPEE_BASE_URL=https://partner.shopeemobile.com/api/v2
+
+# Configurações opcionais
+SYNC_INTERVAL_HOURS=4
+SYNC_AUTO_START=true
+CORS_ORIGIN=*
+LOG_LEVEL=info
