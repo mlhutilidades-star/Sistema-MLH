@@ -26,7 +26,6 @@ export class TinyClient {
       timeout: config.tiny.timeout,
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${config.tiny.apiKey}`,
       },
     });
 
@@ -63,6 +62,30 @@ export class TinyClient {
         return Promise.reject(error);
       }
     );
+  }
+
+  private buildAuthHeaders(): Record<string, string> {
+    if (!config.tiny.apiKey) return {};
+    return { Authorization: `Bearer ${config.tiny.apiKey}` };
+  }
+
+  private async getWithTinyAuth<T>(path: string, params: Record<string, any>): Promise<T> {
+    try {
+      const { data } = await this.client.get<T>(path, {
+        params,
+        headers: this.buildAuthHeaders(),
+      });
+      return data;
+    } catch (error) {
+      // Fallback: alguns ambientes do Tiny aceitam o token como parâmetro (token=...).
+      if (axios.isAxiosError(error) && error.response?.status === 403 && config.tiny.apiKey) {
+        const { data } = await this.client.get<T>(path, {
+          params: { ...params, token: config.tiny.apiKey },
+        });
+        return data;
+      }
+      throw error;
+    }
   }
 
   /**
@@ -106,13 +129,10 @@ export class TinyClient {
     try {
       const response = await retryWithBackoff(
         async () => {
-          const { data } = await this.client.get<TinyProdutoResponse>('/produtos.pesquisa', {
-            params: {
-              pagina,
-              formato: 'json',
-            },
+          return await this.getWithTinyAuth<TinyProdutoResponse>('/produtos.pesquisa', {
+            pagina,
+            formato: 'json',
           });
-          return data;
         },
         config.tiny.maxRetries
       );
@@ -134,13 +154,10 @@ export class TinyClient {
     try {
       const response = await retryWithBackoff(
         async () => {
-          const { data } = await this.client.get<TinyProdutoResponse>('/produto.obter', {
-            params: {
-              id,
-              formato: 'json',
-            },
+          return await this.getWithTinyAuth<TinyProdutoResponse>('/produto.obter', {
+            id,
+            formato: 'json',
           });
-          return data;
         },
         config.tiny.maxRetries
       );
@@ -162,13 +179,10 @@ export class TinyClient {
     try {
       const response = await retryWithBackoff(
         async () => {
-          const { data } = await this.client.get<TinyEstoqueResponse>('/estoque.busca', {
-            params: {
-              id: idProduto,
-              formato: 'json',
-            },
+          return await this.getWithTinyAuth<TinyEstoqueResponse>('/estoque.busca', {
+            id: idProduto,
+            formato: 'json',
           });
-          return data;
         },
         config.tiny.maxRetries
       );
@@ -190,15 +204,12 @@ export class TinyClient {
     try {
       const response = await retryWithBackoff(
         async () => {
-          const { data } = await this.client.get<TinyContaPagarResponse>('/contas.pagar.busca', {
-            params: {
-              dataInicio,
-              dataFim,
-              pagina,
-              formato: 'json',
-            },
+          return await this.getWithTinyAuth<TinyContaPagarResponse>('/contas.pagar.busca', {
+            dataInicio,
+            dataFim,
+            pagina,
+            formato: 'json',
           });
-          return data;
         },
         config.tiny.maxRetries
       );
@@ -220,15 +231,12 @@ export class TinyClient {
     try {
       const response = await retryWithBackoff(
         async () => {
-          const { data } = await this.client.get<TinyContaReceberResponse>('/contas.receber.busca', {
-            params: {
-              dataInicio,
-              dataFim,
-              pagina,
-              formato: 'json',
-            },
+          return await this.getWithTinyAuth<TinyContaReceberResponse>('/contas.receber.busca', {
+            dataInicio,
+            dataFim,
+            pagina,
+            formato: 'json',
           });
-          return data;
         },
         config.tiny.maxRetries
       );

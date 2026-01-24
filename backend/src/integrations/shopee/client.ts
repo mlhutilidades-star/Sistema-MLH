@@ -7,6 +7,7 @@ import { config } from '../../shared/config';
 import { logger, loggers } from '../../shared/logger';
 import { retryWithBackoff, sleep } from '../../shared/utils';
 import { buildShopeeUrl } from './auth';
+import { refreshAccessToken } from './oauth';
 import type {
   ShopeeItemListResponse,
   ShopeeItemDetailResponse,
@@ -19,12 +20,15 @@ import type {
 export class ShopeeClient {
   private client: AxiosInstance;
   private accessToken?: string;
+  private refreshToken?: string;
+  private refreshing?: Promise<void>;
   private lastRequestTime: number = 0;
   private requestCount: number = 0;
   private readonly minRequestInterval = 3600; // 3.6s entre requests (~1000 req/hour)
 
-  constructor(accessToken?: string) {
-    this.accessToken = accessToken;
+  constructor(accessToken?: string, refreshToken?: string) {
+    this.accessToken = accessToken ?? process.env.SHOPEE_ACCESS_TOKEN;
+    this.refreshToken = refreshToken ?? process.env.SHOPEE_REFRESH_TOKEN;
     
     this.client = axios.create({
       timeout: config.shopee.timeout,
@@ -56,6 +60,22 @@ export class ShopeeClient {
         return response;
       },
       (error: AxiosError) => {
+        // Tentar refresh do access_token (1x) quando a Shopee indicar falha de auth/token.
+        const cfg = error.config as any;
+        const alreadyRetried = !!cfg?.__shopeeRetried;
+        const status = error.response?.status;
+        const data: any = error.response?.data;
+        const errorText = `${data?.error || ''} ${data?.message || ''}`.toLowerCase();
+        const shouldRefresh =
+          !alreadyRetried &&
+          !!this.refreshToken &&
+          (status === 403 || status === 401 || errorText.includes('auth') || errorText.includes('token'));
+
+        if (shouldRefresh) {
+          cfg.__shopeeRetried = true;
+          return this.refreshAndRetry(cfg);
+        }
+
         if (error.config) {
           loggers.api.error(
             error.config.method?.toUpperCase() || 'GET',
@@ -66,6 +86,30 @@ export class ShopeeClient {
         return Promise.reject(error);
       }
     );
+  }
+
+  private async refreshAndRetry(originalConfig: any) {
+    await this.ensureRefreshed();
+    return this.client.request(originalConfig);
+  }
+
+  private async ensureRefreshed(): Promise<void> {
+    if (this.refreshing) return this.refreshing;
+    if (!this.refreshToken) throw new Error('SHOPEE_REFRESH_TOKEN não configurado');
+    if (!config.shopee.shopId || config.shopee.shopId <= 0) throw new Error('SHOPEE_SHOP_ID não configurado');
+
+    this.refreshing = (async () => {
+      const tokens = await refreshAccessToken({
+        refreshToken: this.refreshToken as string,
+        shopId: config.shopee.shopId,
+      });
+      this.accessToken = tokens.access_token;
+      this.refreshToken = tokens.refresh_token || this.refreshToken;
+    })().finally(() => {
+      this.refreshing = undefined;
+    });
+
+    return this.refreshing;
   }
 
   /**
@@ -139,6 +183,17 @@ export class ShopeeClient {
     }
   }
 
+  // Aliases compatíveis com scripts de teste
+  async getItems(input: { offset?: number; page_size?: number }) {
+    const res = await this.getItemList(input.offset ?? 0, input.page_size ?? 50);
+    return {
+      items: res.response?.item ?? [],
+      total_count: res.response?.total_count ?? 0,
+      has_next_page: res.response?.has_next_page ?? false,
+      next_offset: res.response?.next_offset ?? 0,
+    };
+  }
+
   /**
    * Buscar detalhes de produtos
    */
@@ -201,6 +256,21 @@ export class ShopeeClient {
     } catch (error) {
       this.handleShopeeError(error);
     }
+  }
+
+  async getOrders(input: { time_from: number; time_to: number; page_size?: number; order_status?: string; cursor?: string }) {
+    const res = await this.getOrderList(
+      input.time_from,
+      input.time_to,
+      input.order_status ?? 'COMPLETED',
+      input.page_size ?? 50,
+      input.cursor
+    );
+    return {
+      orders: res.response?.order_list ?? [],
+      more: res.response?.more ?? false,
+      next_cursor: res.response?.next_cursor,
+    };
   }
 
   /**
@@ -266,6 +336,14 @@ export class ShopeeClient {
     } catch (error) {
       this.handleShopeeError(error);
     }
+  }
+
+  async getAdsReport(input: { date_from: string; date_to: string }) {
+    const res = await this.getAdsDailyPerformance(input.date_from, input.date_to);
+    return {
+      data: res.response?.data ?? [],
+      total_count: res.response?.total_count ?? 0,
+    };
   }
 
   /**

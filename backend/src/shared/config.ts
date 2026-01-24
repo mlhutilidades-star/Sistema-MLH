@@ -82,6 +82,10 @@ export function getConfigWarnings(): string[] {
 
     if (!config.shopee.partnerId || !config.shopee.partnerKey || !config.shopee.shopId) {
       warnings.push('Credenciais Shopee não configuradas (integração Shopee desabilitada até configurar)');
+    } else {
+      if (!process.env.SHOPEE_ACCESS_TOKEN || !process.env.SHOPEE_REFRESH_TOKEN) {
+        warnings.push('Tokens Shopee ausentes (SHOPEE_ACCESS_TOKEN/SHOPEE_REFRESH_TOKEN); chamadas autenticadas podem falhar até completar OAuth');
+      }
     }
   }
 
