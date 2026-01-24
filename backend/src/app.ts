@@ -46,6 +46,13 @@ const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutos
   max: 100, // 100 requests por IP
   message: 'Muitas requisições deste IP, tente novamente mais tarde',
+  skip: (req) => {
+    const path = req.path || '';
+    // Permitir OAuth da Shopee sem bloqueio para facilitar o fluxo de autorização.
+    // Observação: `req.path` aqui é relativo ao mount `/api/`.
+    if (path.startsWith('/shopee/oauth/')) return true;
+    return false;
+  },
 });
 
 app.use('/api/', limiter);
