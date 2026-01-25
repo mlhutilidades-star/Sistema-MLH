@@ -141,12 +141,32 @@ async function syncPedidosMargemShopee(): Promise<{ pedidos: number; itens: numb
   const shopee = new ShopeeClient(token);
   const lucroService = new LucroService();
 
-  const days = parseNumberEnv('MARGIN_LOOKBACK_DAYS', 30);
+  const daysRaw = parseNumberEnv('MARGIN_LOOKBACK_DAYS', 30);
+  const days = Math.max(1, Math.floor(daysRaw));
   const nowSec = Math.floor(Date.now() / 1000);
   const fromSec = nowSec - days * 86400;
 
+  // Shopee limita time_from/time_to em janelas de até 15 dias.
+  // Para evitar erros (diff in 15days), buscamos em janelas menores e deduplicamos.
+  const windowSec = 14 * 86400; // margem de segurança
+  const orderSnSet = new Set<string>();
+
   logger.info(`🧾 Buscando pedidos Shopee (últimos ${days} dias)...`);
-  const orderSns = await shopee.getAllOrders(fromSec, nowSec);
+  let cursorEnd = nowSec;
+  while (cursorEnd > fromSec) {
+    let cursorStart = Math.max(fromSec, cursorEnd - windowSec);
+    if (cursorStart >= cursorEnd) {
+      cursorStart = Math.max(fromSec, cursorEnd - 60);
+    }
+
+    logger.info(`📦 Janela Shopee orders: ${cursorStart} -> ${cursorEnd}`);
+    const windowOrders = await shopee.getAllOrders(cursorStart, cursorEnd);
+    for (const sn of windowOrders) orderSnSet.add(sn);
+
+    cursorEnd = cursorStart - 1;
+  }
+
+  const orderSns = Array.from(orderSnSet);
   if (!orderSns.length) return { pedidos: 0, itens: 0, custosAusentes: 0 };
 
   const batchSize = 50;
