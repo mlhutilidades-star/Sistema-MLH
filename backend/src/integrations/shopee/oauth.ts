@@ -26,10 +26,12 @@ type ShopeeApiEnvelope<T> = {
   response?: T;
 };
 
-function buildSignedUrl(path: string): string {
+function buildSignedUrl(path: string, opts?: { shopId?: number }): string {
+  const shopId = opts?.shopId;
   const { sign, timestamp } = generateShopeeSignature({
     partnerId: config.shopee.partnerId,
     partnerKey: config.shopee.partnerKey,
+    shopId: typeof shopId === 'number' && Number.isFinite(shopId) ? shopId : undefined,
     // A assinatura usa o path completo incluindo /api/v2.
     path: `/api/v2${path}`,
   });
@@ -38,6 +40,7 @@ function buildSignedUrl(path: string): string {
     partner_id: String(config.shopee.partnerId),
     timestamp: String(timestamp),
     sign,
+    ...(typeof shopId === 'number' && Number.isFinite(shopId) ? { shop_id: String(shopId) } : {}),
   });
 
   return `${config.shopee.baseUrl}${path}?${params.toString()}`;
@@ -134,7 +137,9 @@ export async function exchangeCodeForTokens(input: {
     }
 
     const post = async (path: string): Promise<ShopeeTokenResponse> => {
-      const url = buildSignedUrl(path);
+      const url = buildSignedUrl(path, {
+        shopId: typeof body.shop_id === 'number' && Number.isFinite(body.shop_id) ? body.shop_id : undefined,
+      });
       const { data } = await axios.post<ShopeeApiEnvelope<ShopeeTokenResponse>>(
         url,
         body,
@@ -186,7 +191,7 @@ export async function refreshAccessToken(input: {
     throw new Error('Credenciais Shopee ausentes (SHOPEE_PARTNER_ID/SHOPEE_PARTNER_KEY)');
   }
 
-  const url = buildSignedUrl('/auth/access_token/refresh');
+  const url = buildSignedUrl('/auth/access_token/refresh', { shopId: input.shopId });
 
   try {
     const { data } = await axios.post<ShopeeApiEnvelope<ShopeeTokenResponse>>(
