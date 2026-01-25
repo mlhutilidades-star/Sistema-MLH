@@ -70,6 +70,8 @@ function unwrapResponse<T>(raw: unknown): T {
       hasErrorField: 'error' in (data as any),
       hasMessageField: 'message' in (data as any),
       hasResponseField: 'response' in (data as any),
+      error: (data as any).error,
+      message: (data as any).message,
       requestId: (data as any).request_id,
     });
     throw new Error('Resposta inválida da Shopee (sem response)');
