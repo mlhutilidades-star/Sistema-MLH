@@ -16,6 +16,11 @@ export type ShopeeTokenResponse = {
   partner_id: number;
   shop_id: number;
   merchant_id?: number;
+  // Algumas respostas do endpoint /auth/token/get vêm com listas no topo (sem `response`).
+  shop_id_list?: number[];
+  merchant_id_list?: number[];
+  supplier_id_list?: number[];
+  user_id_list?: number[];
 };
 
 type ShopeeApiEnvelope<T> = {
@@ -42,42 +47,65 @@ function buildShopeeV2UrlWithAuthQuery(path: string, auth: { sign: string; times
   return `${url}?${params.toString()}`;
 }
 
-function unwrapResponse<T>(raw: unknown): T {
+
+function unwrapShopeeTokenResponse(raw: unknown): ShopeeTokenResponse {
   if (!raw) throw new Error('Resposta vazia da Shopee');
+  if (typeof raw !== 'object') throw new Error('Resposta inválida da Shopee (payload não-JSON)');
 
-  if (typeof raw !== 'object') {
-    logger.warn('Shopee OAuth API returned non-object payload', {
-      payloadType: typeof raw,
-    });
-    throw new Error('Resposta inválida da Shopee (payload não-JSON)');
+  const data = raw as any;
+
+  // Se vier no formato envelope { error, message, response: {...} }
+  if (data && typeof data === 'object' && 'error' in data && 'message' in data) {
+    if (data.error && data.error !== '') {
+      const requestId = data.request_id ? ` (request_id=${data.request_id})` : '';
+      throw new Error(`Shopee OAuth Error: ${data.error} - ${data.message}${requestId}`);
+    }
+
+    if (data.response && typeof data.response === 'object') {
+      const resp = data.response as any;
+      return resp as ShopeeTokenResponse;
+    }
   }
 
-  const data = raw as ShopeeApiEnvelope<T>;
-
-  if (data.error && data.error !== '') {
-    const requestId = data.request_id ? ` (request_id=${data.request_id})` : '';
-    logger.warn('Shopee OAuth API returned error', {
-      error: data.error,
-      message: data.message,
-      requestId: data.request_id,
-    });
-    throw new Error(`Shopee OAuth Error: ${data.error} - ${data.message}${requestId}`);
+  // Algumas respostas do /auth/token/get vêm no topo (sem `response`).
+  if (typeof data.access_token === 'string' && typeof data.refresh_token === 'string') {
+    return data as ShopeeTokenResponse;
   }
 
-  if (!data.response) {
-    logger.warn('Shopee OAuth API returned unexpected envelope', {
-      keys: Object.keys(data as any),
-      hasErrorField: 'error' in (data as any),
-      hasMessageField: 'message' in (data as any),
-      hasResponseField: 'response' in (data as any),
-      error: (data as any).error,
-      message: (data as any).message,
-      requestId: (data as any).request_id,
-    });
-    throw new Error('Resposta inválida da Shopee (sem response)');
+  logger.warn('Shopee OAuth token response in unknown shape', {
+    keys: Object.keys(data || {}),
+  });
+  throw new Error('Resposta inválida da Shopee (tokens ausentes)');
+}
+
+function normalizeShopeeTokenResponse(raw: ShopeeTokenResponse, fallback: { shopId?: number }): ShopeeTokenResponse {
+  const shopIdFromList = Array.isArray(raw.shop_id_list) && raw.shop_id_list.length > 0 ? Number(raw.shop_id_list[0]) : undefined;
+  const merchantIdFromList = Array.isArray(raw.merchant_id_list) && raw.merchant_id_list.length > 0 ? Number(raw.merchant_id_list[0]) : undefined;
+
+  const shop_id =
+    typeof (raw as any).shop_id === 'number' && Number.isFinite((raw as any).shop_id)
+      ? Number((raw as any).shop_id)
+      : typeof fallback.shopId === 'number' && Number.isFinite(fallback.shopId)
+        ? Number(fallback.shopId)
+        : typeof shopIdFromList === 'number' && Number.isFinite(shopIdFromList)
+          ? shopIdFromList
+          : undefined;
+
+  if (!shop_id) {
+    throw new Error('Resposta inválida da Shopee (shop_id ausente)');
   }
 
-  return data.response;
+  return {
+    ...raw,
+    partner_id: config.shopee.partnerId,
+    shop_id,
+    merchant_id:
+      typeof (raw as any).merchant_id === 'number' && Number.isFinite((raw as any).merchant_id)
+        ? Number((raw as any).merchant_id)
+        : typeof merchantIdFromList === 'number' && Number.isFinite(merchantIdFromList)
+          ? merchantIdFromList
+          : undefined,
+  };
 }
 
 function extractAxiosErrorMessage(error: unknown): string {
@@ -147,7 +175,8 @@ export async function exchangeCodeForTokens(input: {
       timeout: config.shopee.timeout,
     });
 
-    return unwrapResponse(data);
+    const tokens = unwrapShopeeTokenResponse(data);
+    return normalizeShopeeTokenResponse(tokens, { shopId: input.shopId });
   } catch (error) {
     if (axios.isAxiosError(error)) {
       const status = error.response?.status;
@@ -196,7 +225,8 @@ export async function refreshAccessToken(input: {
       timeout: config.shopee.timeout,
     });
 
-    return unwrapResponse(data);
+    const tokens = unwrapShopeeTokenResponse(data);
+    return normalizeShopeeTokenResponse(tokens, { shopId: input.shopId });
   } catch (error) {
     throw new Error(`Falha ao renovar access token: ${extractAxiosErrorMessage(error)}`);
   }
