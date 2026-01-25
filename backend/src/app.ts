@@ -14,6 +14,8 @@ import adsRoutes from './modules/ads/routes';
 import conciliacaoRoutes from './modules/conciliacao/routes';
 import shopeeRoutes from './modules/shopee/routes';
 import relatoriosRoutes from './modules/relatorios/routes';
+import mapeamentoRoutes from './modules/mapeamento/routes';
+import { mapeamentoUiHandler } from './modules/mapeamento/ui';
 
 // Shared
 import { logger } from './shared/logger';
@@ -107,9 +109,13 @@ app.get('/', (_req: Request, res: Response) => {
       financeiro: '/api/financeiro',
       ads: '/api/ads',
       conciliacao: '/api/conciliacao',
+      mapeamento: '/api/mapeamento',
     },
   });
 });
+
+// UI simples para mapeamento SKU (usa API com x-admin-secret)
+app.get('/mapeamento', mapeamentoUiHandler);
 
 app.use('/api/produtos', produtosRoutes);
 app.use('/api/financeiro', financeiroRoutes);
@@ -117,6 +123,7 @@ app.use('/api/ads', adsRoutes);
 app.use('/api/conciliacao', conciliacaoRoutes);
 app.use('/api/shopee', shopeeRoutes);
 app.use('/api/relatorios', relatoriosRoutes);
+app.use('/api/mapeamento', mapeamentoRoutes);
 
 // ==========================================
 // ERROR HANDLING

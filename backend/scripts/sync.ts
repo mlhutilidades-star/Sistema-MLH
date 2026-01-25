@@ -261,17 +261,50 @@ async function syncProdutosCustoPorSkuShopee(options?: { onlySoldSkus?: boolean;
   return { total, atualizados, custoEncontrado, custoAusente, erros, pulados24h };
 }
 
-async function syncCustosTinyOtimizado(options?: { refreshCosts?: boolean; lookbackDays?: number }): Promise<{ total: number; custosOk: number; custosAusentes: number; pulados24h: number; erros: number }> {
+async function syncCustosTinyOtimizado(options?: { refreshCosts?: boolean; lookbackDays?: number; useMapping?: boolean }): Promise<{ total: number; custosOk: number; custosAusentes: number; pulados24h: number; erros: number }> {
   const prisma = getPrismaClient();
   const tiny = new TinyClient();
   const refreshCosts = options?.refreshCosts ?? false;
   const lookbackDays = options?.lookbackDays ?? parseNumberEnv('MARGIN_LOOKBACK_DAYS', 30);
+  const useMapping = options?.useMapping ?? false;
 
   const skuToName = await getSoldSkusFromDbLastDays(lookbackDays);
   const skus = Array.from(skuToName.keys());
   logger.info(`🧾 (DB) SKUs vendidos para refresh de custo: ${skus.length}`);
 
-  const custosTiny = await tiny.buscarCustosPorSKUs(skus);
+  // 1) Pré-carrega custos via mapeamento (Shopee SKU -> Tiny código)
+  const custosTiny = new Map<string, number>();
+  if (useMapping && skus.length) {
+    const mappings = await prisma.mapeamentoSKU.findMany({
+      where: { skuShopee: { in: skus } },
+      select: { skuShopee: true, codigoTiny: true },
+    }).catch(() => [] as Array<{ skuShopee: string; codigoTiny: string }>);
+
+    const mapBySku = new Map(mappings.map((m) => [m.skuShopee, m.codigoTiny] as const));
+
+    let mappedCount = 0;
+    for (const sku of skus) {
+      const codigoTiny = mapBySku.get(sku);
+      if (!codigoTiny) continue;
+      mappedCount++;
+
+      try {
+        const custo = await tiny.buscarCustoPorSkuComFallbacks(codigoTiny);
+        if (typeof custo === 'number' && Number.isFinite(custo) && custo > 0) {
+          custosTiny.set(sku, custo);
+        }
+      } catch (e: any) {
+        logger.warn(`Tiny (mapeamento): falha ao buscar custo para ${sku} -> ${codigoTiny}: ${String(e?.message || e)}`);
+      }
+    }
+
+    logger.info(`🔁 Mapeamentos aplicados (encontrados no DB): ${mappedCount} | custos obtidos via mapeamento: ${custosTiny.size}`);
+  }
+
+  // 2) Completa o restante com fallbacks padrão de SKU
+  const remainingSkus = skus.filter((s) => !custosTiny.has(s));
+  const custosFallback = await tiny.buscarCustosPorSKUs(remainingSkus);
+  for (const [k, v] of custosFallback.entries()) custosTiny.set(k, v);
 
   let total = 0;
   let custosOk = 0;
@@ -619,6 +652,7 @@ async function syncManual() {
     const service = parseServiceArg(argv);
     const refreshCosts = hasFlag(argv, '--refresh-costs') || hasFlag(argv, '--refreshCosts');
     const otimizado = hasFlag(argv, '--otimizado') || hasFlag(argv, '--optimized');
+    const useMapping = hasFlag(argv, '--com-mapeamento') || hasFlag(argv, '--com-mapeamento-sku') || hasFlag(argv, '--with-mapping');
     const fullMarginCalc =
       hasFlag(argv, '--full-margin-calc') ||
       hasFlag(argv, '--calcular-lucro') ||
@@ -638,6 +672,7 @@ async function syncManual() {
       const r = await syncCustosTinyOtimizado({
         refreshCosts,
         lookbackDays: parseNumberEnv('MARGIN_LOOKBACK_DAYS', 30),
+        useMapping,
       });
       logger.info(`✅ Custos Tiny (DB SKUs): total ${r.total}; ok ${r.custosOk}; ausentes ${r.custosAusentes}; pulados24h ${r.pulados24h}; erros ${r.erros}`);
     }

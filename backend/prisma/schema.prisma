@@ -233,3 +233,17 @@ model LogSync {
   @@index([tipo])
   @@index([criadoEm])
 }
+
+// ==========================================
+// MAPEAMENTO SKU - Shopee -> Tiny
+// Útil quando o SKU da Shopee não é o código cadastrado no Tiny.
+// ==========================================
+model MapeamentoSKU {
+  id         String   @id @default(cuid())
+  skuShopee  String   @unique
+  codigoTiny String
+  criadoEm   DateTime @default(now())
+
+  @@map("mapeamento_sku")
+  @@index([skuShopee])
+}

@@ -340,6 +340,60 @@ export class TinyClient {
   }
 
   /**
+   * Pesquisa produtos no Tiny (API2) usando o parâmetro `pesquisa`.
+   * Retorna uma lista simples para auxiliar no mapeamento SKU Shopee -> Tiny.
+   */
+  async pesquisarProdutosPorTexto(texto: string): Promise<Array<{ codigo: string; nome?: string; id?: string }>> {
+    const q = String(texto || '').trim();
+    if (!q) return [];
+
+    const all: Array<{ codigo: string; nome?: string; id?: string }> = [];
+    const maxPages = 3;
+
+    for (let pagina = 1; pagina <= maxPages; pagina++) {
+      const response = await retryWithBackoff(
+        async () => {
+          return await this.getWithTinyAuth<TinyProdutoResponse>('/produtos.pesquisa', {
+            pagina,
+            formato: 'json',
+            pesquisa: q,
+          });
+        },
+        config.tiny.maxRetries
+      );
+
+      if (!this.isTinySuccess(response.retorno)) {
+        const msg = this.tinyStatusMessage(response.retorno);
+        if (String(msg).toLowerCase().includes('não retornou registros') || String(msg).toLowerCase().includes('nao retornou registros')) {
+          break;
+        }
+        if (this.isTinyRateLimitedMessage(msg)) {
+          throw new TinyRateLimitError(msg);
+        }
+        throw new Error(msg);
+      }
+
+      const produtos = response.retorno?.produtos || [];
+      for (const p of produtos) {
+        const produto = (p as any)?.produto;
+        const codigo = String(produto?.codigo || '').trim();
+        if (!codigo) continue;
+        all.push({ codigo, nome: produto?.nome, id: produto?.id });
+      }
+
+      // Se veio vazio, não há mais páginas relevantes.
+      if (!produtos.length) break;
+    }
+
+    // Dedup por código
+    const byCodigo = new Map<string, { codigo: string; nome?: string; id?: string }>();
+    for (const it of all) {
+      if (!byCodigo.has(it.codigo)) byCodigo.set(it.codigo, it);
+    }
+    return Array.from(byCodigo.values()).slice(0, 50);
+  }
+
+  /**
    * Obter detalhes de um produto por ID
    */
   async obterProduto(id: string): Promise<TinyProdutoResponse> {
