@@ -14,6 +14,10 @@ import type {
   TinyError,
 } from './types';
 
+class TinyRateLimitError extends Error {
+  name = 'TinyRateLimitError';
+}
+
 export class TinyClient {
   private client: AxiosInstance;
   private clientApi2: AxiosInstance;
@@ -217,6 +221,17 @@ export class TinyClient {
       : [];
 
     return mensagens[0] || erros[0] || statusText || 'Erro desconhecido';
+  }
+
+  private isTinyRateLimitedMessage(message: string): boolean {
+    const m = String(message || '').toLowerCase();
+    return (
+      m.includes('api bloqueada') ||
+      m.includes('excedido o número de acessos') ||
+      m.includes('excedido o numero de acessos') ||
+      m.includes('rate limit') ||
+      m.includes('too many requests')
+    );
   }
 
   /**
@@ -439,7 +454,16 @@ export class TinyClient {
       );
 
       if (!this.isTinySuccess(response.retorno)) {
-        throw new Error(this.tinyStatusMessage(response.retorno));
+        const msg = this.tinyStatusMessage(response.retorno);
+        // "A consulta não retornou registros" é um caso esperado (SKU não cadastrado / sem retorno)
+        if (String(msg).toLowerCase().includes('não retornou registros') || String(msg).toLowerCase().includes('nao retornou registros')) {
+          return null;
+        }
+        // "API Bloqueada" / rate limit deve ser tratado como falha transitória
+        if (this.isTinyRateLimitedMessage(msg)) {
+          throw new TinyRateLimitError(msg);
+        }
+        throw new Error(msg);
       }
 
       const produtos = response.retorno.produtos || [];
@@ -450,13 +474,22 @@ export class TinyClient {
       const produto = encontrado || produtos[0]?.produto;
       if (!produto) return null;
 
-      if (typeof produto.preco_custo === 'number' && Number.isFinite(produto.preco_custo)) {
-        return produto.preco_custo;
-      }
-
-      // Sem preco_custo: preferimos não inventar custo; retorna null.
-      return null;
+      const custoMedio = typeof (produto as any).custo_medio === 'number' ? Number((produto as any).custo_medio) : NaN;
+      const precoCusto = typeof produto.preco_custo === 'number' ? Number(produto.preco_custo) : NaN;
+      const custo = Number.isFinite(custoMedio) && custoMedio > 0 ? custoMedio : Number.isFinite(precoCusto) && precoCusto > 0 ? precoCusto : null;
+      return custo;
     } catch (error) {
+      // Blindagem: tratar 403/429 e mensagens de bloqueio como erro específico.
+      if (axios.isAxiosError(error)) {
+        const status = error.response?.status;
+        if (status === 403 || status === 429) {
+          throw new TinyRateLimitError(`Tiny API bloqueada/rate limited (HTTP ${status})`);
+        }
+      }
+      const msg = String((error as any)?.message || error);
+      if (this.isTinyRateLimitedMessage(msg)) {
+        throw new TinyRateLimitError(msg);
+      }
       this.handleTinyError(error);
     }
   }

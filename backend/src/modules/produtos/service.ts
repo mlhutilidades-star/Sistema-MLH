@@ -42,8 +42,19 @@ export class ProdutoService {
           try {
             totalProdutos++;
 
-            // Calcular custo real (pode ser customizado)
-            const custoReal = produto.preco_custo || produto.preco * 0.6;
+            // Priorizar custo médio, depois preço de custo.
+            // Não inventar custo (ex: preco*0.6) para não poluir a margem.
+            const custoMedio = typeof (produto as any).custo_medio === 'number' ? Number((produto as any).custo_medio) : 0;
+            const precoCusto = typeof produto.preco_custo === 'number' ? Number(produto.preco_custo) : 0;
+            const novoCusto = custoMedio > 0 ? custoMedio : precoCusto;
+
+            const existente = await this.prisma.produto.findUnique({
+              where: { idTiny: produto.id },
+              select: { id: true, custoReal: true, custoAtualizadoEm: true },
+            });
+
+            const custoReal = novoCusto === 0 && (existente?.custoReal || 0) > 0 ? existente!.custoReal : novoCusto;
+            const custoStatus = custoReal > 0 ? 'OK' : 'PENDENTE_SYNC';
 
             // Upsert no banco de dados
             const result = await this.prisma.produto.upsert({
@@ -53,6 +64,8 @@ export class ProdutoService {
                 descricao: produto.nome,
                 ncm: produto.ncm || null,
                 custoReal,
+                custoStatus,
+                custoAtualizadoEm: custoReal > 0 ? new Date() : null,
                 precoVenda: produto.preco,
                 idTiny: produto.id,
                 estoqueTiny: produto.estoque || 0,
@@ -61,7 +74,10 @@ export class ProdutoService {
               update: {
                 descricao: produto.nome,
                 ncm: produto.ncm || null,
+                // Blindagem: não sobrescrever custo antigo por zero
                 custoReal,
+                custoStatus,
+                custoAtualizadoEm: custoReal > 0 ? new Date() : (existente?.custoAtualizadoEm ?? null),
                 precoVenda: produto.preco,
                 estoqueTiny: produto.estoque || 0,
                 ativo: produto.situacao === 'A',

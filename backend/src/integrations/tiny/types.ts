@@ -8,6 +8,7 @@ export interface TinyProduto {
   codigo: string;
   unidade: string;
   preco: number;
+  custo_medio?: number;
   preco_custo?: number;
   ncm?: string;
   origem?: string;

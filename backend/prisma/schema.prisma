@@ -21,6 +21,8 @@ model Produto {
   descricao     String
   ncm           String?
   custoReal     Float    // Campo mestre de custo (Tiny)
+  custoStatus   String   @default("OK") // OK | PENDENTE_SYNC
+  custoAtualizadoEm DateTime?
   precoVenda    Float?
   idTiny        String?  @unique
   estoqueTiny   Int?
