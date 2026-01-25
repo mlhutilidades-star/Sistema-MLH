@@ -64,7 +64,6 @@ async function syncManual() {
         const resultadoShopeeProdutos = await produtoServiceShopee.syncProdutosShopee();
         logger.info(`✅ Shopee Produtos: ${resultadoShopeeProdutos.total} processados`);
 
-        logger.info('📊 Sincronizando dados de ads do Shopee...');
         const adsService = new AdsService(shopeeAccessToken);
         const hoje = new Date();
         const trintaDiasAtras = new Date();
@@ -73,12 +72,22 @@ async function syncManual() {
         const startDate = trintaDiasAtras.toISOString().split('T')[0];
         const endDate = hoje.toISOString().split('T')[0];
 
-        const resultadoAds = await adsService.syncAdsShopee(startDate, endDate);
-        logger.info(`✅ Ads: ${resultadoAds.total} registros sincronizados`);
+        try {
+          logger.info('📊 Sincronizando dados de ads do Shopee...');
+          const resultadoAds = await adsService.syncAdsShopee(startDate, endDate);
+          logger.info(`✅ Ads: ${resultadoAds.total} registros sincronizados`);
 
-        logger.info('🔄 Rateando custos de ads...');
-        const resultadoRateio = await adsService.ratearCustosAds(trintaDiasAtras, hoje);
-        logger.info(`✅ Rateio: ${resultadoRateio.atualizados} contas atualizadas`);
+          logger.info('🔄 Rateando custos de ads...');
+          const resultadoRateio = await adsService.ratearCustosAds(trintaDiasAtras, hoje);
+          logger.info(`✅ Rateio: ${resultadoRateio.atualizados} contas atualizadas`);
+        } catch (error: any) {
+          const msg = String(error?.message || error);
+          if (msg.includes('status code 404')) {
+            logger.warn('⚠️  Shopee Ads indisponível (404). Pulando Ads/Rateio e concluindo sync Shopee.');
+          } else {
+            throw error;
+          }
+        }
       }
     }
 
