@@ -31,6 +31,9 @@ $secret = New-RandomSecret
 # Set sempre (idempotente). Não imprime o valor.
 & railway variables set -s $RailwayService "OAUTH_ADMIN_SECRET=$secret" | Out-Null
 
+# `railway variables set` reinicia o serviço. Aguarde para o backend ler o novo secret.
+Start-Sleep -Seconds 15
+
 Write-Host "2) Gerando URL de autorização Shopee..."
 $auth = Invoke-RestMethod -Method Get -Uri $authorizeEndpoint
 if (-not $auth -or -not $auth.url) { throw "Resposta inesperada de $authorizeEndpoint" }
