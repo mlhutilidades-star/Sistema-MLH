@@ -81,11 +81,12 @@ export async function exchangeCodeForTokens(input: {
     throw new Error('Credenciais Shopee ausentes (SHOPEE_PARTNER_ID/SHOPEE_PARTNER_KEY)');
   }
 
-  const url = buildSignedUrl('/auth/access_token/get');
+  const primaryPath = '/auth/access_token/get';
+  const fallbackPath = '/auth/token/get';
 
   logger.info('Shopee OAuth exchange requested', {
     baseUrl: config.shopee.baseUrl,
-    endpoint: '/auth/access_token/get',
+    endpoint: primaryPath,
     codeLen: input.code?.length ?? 0,
     hasShopId: typeof input.shopId === 'number' && Number.isFinite(input.shopId),
     hasMainAccountId: typeof input.mainAccountId === 'number' && Number.isFinite(input.mainAccountId),
@@ -108,25 +109,42 @@ export async function exchangeCodeForTokens(input: {
       body.shop_id = input.shopId;
     }
 
-    const { data } = await axios.post<ShopeeApiEnvelope<ShopeeTokenResponse>>(
-      url,
-      body,
-      {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        timeout: config.shopee.timeout,
-      }
-    );
+    const post = async (path: string): Promise<ShopeeTokenResponse> => {
+      const url = buildSignedUrl(path);
+      const { data } = await axios.post<ShopeeApiEnvelope<ShopeeTokenResponse>>(
+        url,
+        body,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          timeout: config.shopee.timeout,
+        }
+      );
+      return unwrapResponse(data);
+    };
 
-    return unwrapResponse(data);
+    try {
+      return await post(primaryPath);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      // Alguns parceiros reportam que o endpoint correto pode variar.
+      // Se a Shopee reclamar de `refresh_token` numa troca de `code`, tente endpoint alternativo.
+      if (msg.includes('error_param') && msg.toLowerCase().includes('refresh_token')) {
+        logger.warn('Shopee OAuth exchange retrying with fallback endpoint', {
+          fallbackEndpoint: fallbackPath,
+        });
+        return await post(fallbackPath);
+      }
+      throw e;
+    }
   } catch (error) {
     if (axios.isAxiosError(error)) {
       const status = error.response?.status;
       const data = error.response?.data as any;
       logger.warn('Shopee OAuth exchange failed', {
         status,
-        endpoint: '/auth/access_token/get',
+        endpoint: primaryPath,
         responseError: data?.error,
         responseMessage: data?.message,
         requestId: data?.request_id,
