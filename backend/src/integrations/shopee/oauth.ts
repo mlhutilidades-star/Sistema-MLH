@@ -66,6 +66,7 @@ function unwrapResponse<T>(raw: unknown): T {
 
   if (!data.response) {
     logger.warn('Shopee OAuth API returned unexpected envelope', {
+      keys: Object.keys(data as any),
       hasErrorField: 'error' in (data as any),
       hasMessageField: 'message' in (data as any),
       hasResponseField: 'response' in (data as any),
