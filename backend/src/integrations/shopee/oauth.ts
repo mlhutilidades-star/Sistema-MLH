@@ -116,6 +116,9 @@ export async function exchangeCodeForTokens(input: {
       code: input.code,
     };
 
+    // Compat: alguns endpoints/variantes podem esperar nomes alternativos.
+    body.auth_code = input.code;
+
     // Para algumas autorizações, a Shopee retorna `main_account_id`.
     // Nesses casos, a troca do code deve usar `main_account_id` (e não `shop_id`).
     if (typeof input.mainAccountId === 'number' && Number.isFinite(input.mainAccountId)) {
@@ -125,6 +128,7 @@ export async function exchangeCodeForTokens(input: {
         throw new Error('shop_id ausente para troca de code');
       }
       body.shop_id = input.shopId;
+      body.shopid = input.shopId;
     }
 
     const post = async (path: string): Promise<ShopeeTokenResponse> => {
