@@ -33,10 +33,16 @@ async function testTiny() {
 
     console.log('🔍 Teste 1: Tiny /produtos.pesquisa (página 1)...');
     const resp = await tiny.buscarProdutos(1);
-    const statusProc = resp?.retorno?.status_processamento;
+    const statusProcRaw = resp?.retorno?.status_processamento;
+    const statusProc = statusProcRaw == null ? null : Number(statusProcRaw);
+    const status = String(resp?.retorno?.status || '').toUpperCase();
 
-    if (statusProc !== 3) {
-      console.error(`❌ Tiny respondeu status_processamento=${statusProc}`);
+    // Tiny API v3 usa status_processamento=3; endpoints legados via API2 retornam status=OK.
+    const ok = statusProc === 3 || status === 'OK';
+    if (!ok) {
+      console.error(
+        `❌ Tiny respondeu status_processamento=${String(statusProcRaw)} status=${String(resp?.retorno?.status)}`
+      );
       return false;
     }
 
