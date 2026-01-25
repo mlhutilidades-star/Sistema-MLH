@@ -78,14 +78,14 @@ $shopId = if ($tokens.shopId) { [string]$tokens.shopId } elseif ($resp.latest.sh
 # e apaga o `code` armazenado em memória.
 if ($shopId) {
   # Set em lote para reduzir restarts
-  & railway variables set -s $RailwayService \
-    "SHOPEE_SHOP_ID=$shopId" \
-    "SHOPEE_ACCESS_TOKEN=$($tokens.accessToken)" \
+  & railway variables set -s $RailwayService `
+    "SHOPEE_SHOP_ID=$shopId" `
+    "SHOPEE_ACCESS_TOKEN=$($tokens.accessToken)" `
     "SHOPEE_REFRESH_TOKEN=$($tokens.refreshToken)" | Out-Null
 } else {
   Write-Warning "Não foi possível determinar shop_id para salvar no Railway (callback/exchange não retornou)."
-  & railway variables set -s $RailwayService \
-    "SHOPEE_ACCESS_TOKEN=$($tokens.accessToken)" \
+  & railway variables set -s $RailwayService `
+    "SHOPEE_ACCESS_TOKEN=$($tokens.accessToken)" `
     "SHOPEE_REFRESH_TOKEN=$($tokens.refreshToken)" | Out-Null
 }
 
