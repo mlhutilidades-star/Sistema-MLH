@@ -14,6 +14,14 @@ export interface ShopeeAuthParams {
   accessToken?: string;
 }
 
+function getSigningPath(path: string): string {
+  // Quando usamos baseUrl = https://.../api/v2, o `path` da assinatura precisa incluir /api/v2.
+  // Ex.: /api/v2/auth/access_token/get
+  if (path.startsWith('/api/')) return path;
+  if (config.shopee.baseUrl.endsWith('/api/v2')) return `/api/v2${path}`;
+  return path;
+}
+
 /**
  * Gerar assinatura HMAC-SHA256 para Shopee API
  */
@@ -23,11 +31,12 @@ export function generateShopeeSignature(params: ShopeeAuthParams): {
 } {
   const timestamp = Math.floor(Date.now() / 1000);
   const { partnerId, partnerKey, shopId, path, accessToken } = params;
+  const signingPath = getSigningPath(path);
 
   // Construir base string conforme documentação Shopee
   // Base string format: partner_id + path + timestamp + access_token? + shop_id?
   // (para alguns endpoints, access_token e/ou shop_id não entram na assinatura)
-  let baseString = `${partnerId}${path}${timestamp}`;
+  let baseString = `${partnerId}${signingPath}${timestamp}`;
 
   if (accessToken) {
     baseString += accessToken;

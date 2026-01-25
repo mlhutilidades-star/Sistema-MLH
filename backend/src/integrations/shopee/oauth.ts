@@ -29,7 +29,8 @@ function buildSignedUrl(path: string): string {
   const { sign, timestamp } = generateShopeeSignature({
     partnerId: config.shopee.partnerId,
     partnerKey: config.shopee.partnerKey,
-    path,
+    // A assinatura usa o path completo incluindo /api/v2.
+    path: `/api/v2${path}`,
   });
 
   const params = new URLSearchParams({
