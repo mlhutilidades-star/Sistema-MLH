@@ -47,6 +47,11 @@ function unwrapResponse<T>(data: ShopeeApiEnvelope<T>): T {
   if (!data) throw new Error('Resposta vazia da Shopee');
   if (data.error && data.error !== '') {
     const requestId = data.request_id ? ` (request_id=${data.request_id})` : '';
+    logger.warn('Shopee OAuth API returned error', {
+      error: data.error,
+      message: data.message,
+      requestId: data.request_id,
+    });
     throw new Error(`Shopee OAuth Error: ${data.error} - ${data.message}${requestId}`);
   }
   if (!data.response) {
