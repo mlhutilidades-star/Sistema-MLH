@@ -195,10 +195,28 @@ export class TinyClient {
 
   private tinyStatusMessage(retorno: any): string {
     if (!retorno) return 'Erro desconhecido';
-    const status = retorno.status;
-    const msg = retorno?.mensagens?.[0]?.mensagem;
-    const err = retorno?.erros?.[0]?.erro;
-    return msg || err || status || 'Erro desconhecido';
+    const toText = (v: any): string => {
+      if (v === undefined || v === null) return '';
+      if (typeof v === 'string') return v;
+      if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+      try {
+        return JSON.stringify(v);
+      } catch {
+        return String(v);
+      }
+    };
+
+    const statusText = toText(retorno.status);
+
+    const mensagens = Array.isArray(retorno.mensagens)
+      ? retorno.mensagens.map((m: any) => toText(m?.mensagem)).filter(Boolean)
+      : [];
+
+    const erros = Array.isArray(retorno.erros)
+      ? retorno.erros.map((e: any) => toText(e?.erro)).filter(Boolean)
+      : [];
+
+    return mensagens[0] || erros[0] || statusText || 'Erro desconhecido';
   }
 
   /**
