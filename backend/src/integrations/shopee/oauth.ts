@@ -32,6 +32,16 @@ function buildShopeeV2Url(path: string): string {
   return `${base}${p}`;
 }
 
+function buildShopeeV2UrlWithAuthQuery(path: string, auth: { sign: string; timestamp: number }): string {
+  const url = buildShopeeV2Url(path);
+  const params = new URLSearchParams({
+    partner_id: String(config.shopee.partnerId),
+    timestamp: String(auth.timestamp),
+    sign: auth.sign,
+  });
+  return `${url}?${params.toString()}`;
+}
+
 function unwrapResponse<T>(raw: unknown): T {
   if (!raw) throw new Error('Resposta vazia da Shopee');
 
@@ -95,12 +105,12 @@ export async function exchangeCodeForTokens(input: {
   // Header: Authorization: <sign>
   const apiPathForSign = '/api/v2/auth/token/get';
   const urlPath = '/auth/token/get';
-  const url = buildShopeeV2Url(urlPath);
-  const { sign, timestamp } = generateShopeeSignature({
+  const auth = generateShopeeSignature({
     partnerId: config.shopee.partnerId,
     partnerKey: config.shopee.partnerKey,
     path: apiPathForSign,
   });
+  const url = buildShopeeV2UrlWithAuthQuery(urlPath, auth);
 
   logger.info('Shopee OAuth exchange requested', {
     baseUrl: config.shopee.baseUrl,
@@ -114,7 +124,7 @@ export async function exchangeCodeForTokens(input: {
     const body: Record<string, any> = {
       code: input.code,
       partner_id: config.shopee.partnerId,
-      timestamp,
+      timestamp: auth.timestamp,
     };
 
     // Campos condicionais conforme doc: shop_id OU main_account_id
@@ -130,7 +140,8 @@ export async function exchangeCodeForTokens(input: {
     const { data } = await axios.post<ShopeeApiEnvelope<ShopeeTokenResponse>>(url, body, {
       headers: {
         'Content-Type': 'application/json',
-        Authorization: sign,
+        // Alguns ambientes parecem exigir partner_id/timestamp/sign na query; manter Authorization também não atrapalha.
+        Authorization: auth.sign,
       },
       timeout: config.shopee.timeout,
     });
@@ -163,23 +174,23 @@ export async function refreshAccessToken(input: {
   // Mantém compatibilidade com o endpoint atual do projeto, mas usando o padrão de assinatura/headers.
   const apiPathForSign = '/api/v2/auth/access_token/refresh';
   const urlPath = '/auth/access_token/refresh';
-  const url = buildShopeeV2Url(urlPath);
-  const { sign, timestamp } = generateShopeeSignature({
+  const auth = generateShopeeSignature({
     partnerId: config.shopee.partnerId,
     partnerKey: config.shopee.partnerKey,
     path: apiPathForSign,
   });
+  const url = buildShopeeV2UrlWithAuthQuery(urlPath, auth);
 
   try {
     const { data } = await axios.post<ShopeeApiEnvelope<ShopeeTokenResponse>>(url, {
       partner_id: config.shopee.partnerId,
       shop_id: input.shopId,
       refresh_token: input.refreshToken,
-      timestamp,
+      timestamp: auth.timestamp,
     }, {
       headers: {
         'Content-Type': 'application/json',
-        Authorization: sign,
+        Authorization: auth.sign,
       },
       timeout: config.shopee.timeout,
     });
