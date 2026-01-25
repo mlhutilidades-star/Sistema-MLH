@@ -301,7 +301,7 @@ export class TinyClient {
     try {
       const response = await retryWithBackoff(
         async () => {
-          return await this.getWithTinyAuth<TinyContaPagarResponse>('/contas.pagar.busca', {
+          return await this.getWithTinyAuth<TinyContaPagarResponse>('/contas.pagar.pesquisa', {
             dataInicio,
             dataFim,
             pagina,
@@ -328,7 +328,7 @@ export class TinyClient {
     try {
       const response = await retryWithBackoff(
         async () => {
-          return await this.getWithTinyAuth<TinyContaReceberResponse>('/contas.receber.busca', {
+          return await this.getWithTinyAuth<TinyContaReceberResponse>('/contas.receber.pesquisa', {
             dataInicio,
             dataFim,
             pagina,
