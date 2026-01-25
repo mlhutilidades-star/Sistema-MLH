@@ -58,15 +58,15 @@ if (-not ($resp.latest -and $resp.latest.hasCode -and $resp.latest.shopId)) {
 
 Write-Host "4) Trocando code por tokens (server-side) e salvando no Railway..."
 $shopId = [string]$resp.latest.shopId
-# Garante SHOPEE_SHOP_ID
-& railway variables set -s $RailwayService "SHOPEE_SHOP_ID=$shopId" | Out-Null
-
 $tokens = Invoke-RestMethod -Method Post -Uri $exchangeEndpoint -Headers @{ 'x-admin-secret' = $secret } -Body '{}' -ContentType 'application/json'
 if (-not $tokens -or -not $tokens.accessToken -or -not $tokens.refreshToken) {
   throw "Falha ao obter tokens (resposta inesperada)."
 }
 
 # Salvar tokens como variáveis Railway. Não imprime tokens.
+# Importante: não setar variáveis ANTES do exchange, pois isso reinicia o serviço
+# e apaga o `code` armazenado em memória.
+& railway variables set -s $RailwayService "SHOPEE_SHOP_ID=$shopId" | Out-Null
 & railway variables set -s $RailwayService "SHOPEE_ACCESS_TOKEN=$($tokens.accessToken)" | Out-Null
 & railway variables set -s $RailwayService "SHOPEE_REFRESH_TOKEN=$($tokens.refreshToken)" | Out-Null
 
