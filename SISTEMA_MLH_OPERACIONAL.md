@@ -103,6 +103,32 @@ Importante: tarefas que acessam o Postgres privado devem rodar **dentro do conta
 - Regra de catálogo: o sistema **ignora produtos do Tiny** que não estejam à venda na Shopee; o sync parte dos SKUs da Shopee.
 - Sync automático a cada 4 horas mantém produtos/pedidos atualizados.
 
+## 💰 Gestão de Custos (Tiny) e Blindagem
+
+Para aumentar a precisão do lucro (e evitar “lucro 100%” por custo zerado), o sistema prioriza os campos de custo do Tiny e aplica blindagem contra sobrescrita por zero.
+
+### Campos de custo (Tiny)
+
+- `custo_medio`: **prioridade máxima** (quando disponível).
+- `preco_custo`: **fallback** quando `custo_medio` não está preenchido.
+
+### Blindagem de custos
+
+- Nunca sobrescreve um `Produto.custoReal` existente por `0`.
+- Se a API do Tiny estiver bloqueada / rate limited (ex: 403/429 ou mensagem “API Bloqueada”), o sistema **mantém o último custo conhecido** e marca o custo como pendente.
+- Rate limit respeitado (~600ms entre chamadas ao Tiny; com retries incrementais em caso de bloqueio).
+
+### Comandos (produção)
+
+- Sync otimizado de custos (foco em SKUs vendidos nos últimos 30 dias, via DB):
+  - `railway ssh -s api-backend node dist/scripts/sync.js --service=tiny --otimizado --refresh-costs`
+
+- Relatório de SKUs vendidos com custo ausente/pendente (últimos 30 dias):
+  - `railway ssh -s api-backend node dist/scripts/checkMissingCosts.js --days=30`
+
+- Cobertura de custos (percentual de produtos com custo definido):
+  - `railway ssh -s api-backend node dist/scripts/costCoverage.js`
+
 ### Comandos
 
 - Calcular margem completa (produtos + pedidos) em produção:

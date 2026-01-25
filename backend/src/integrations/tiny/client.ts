@@ -493,4 +493,42 @@ export class TinyClient {
       this.handleTinyError(error);
     }
   }
+
+  /**
+   * Buscar custos em lote (sequencial) para evitar bloqueio da API.
+   * Prioriza custo_medio e usa preco_custo como fallback (via buscarCustoPorSKU).
+   */
+  async buscarCustosPorSKUs(skus: string[]): Promise<Map<string, number>> {
+    const custos = new Map<string, number>();
+    const uniqueSkus = Array.from(new Set((skus || []).map((s) => String(s || '').trim()).filter(Boolean)));
+
+    for (const sku of uniqueSkus) {
+      // Delay padrão para respeitar rate limit (~100 req/min)
+      await sleep(600);
+
+      let attempts = 0;
+      while (attempts < 3) {
+        attempts++;
+        try {
+          const custo = await this.buscarCustoPorSKU(sku);
+          if (typeof custo === 'number' && Number.isFinite(custo) && custo > 0) {
+            custos.set(sku, custo);
+          }
+          break;
+        } catch (e: any) {
+          const msg = String(e?.message || e);
+          const isRate = e?.name === 'TinyRateLimitError' || this.isTinyRateLimitedMessage(msg);
+          logger.warn(`Tiny: SKU ${sku} - ${msg}`);
+          if (!isRate) {
+            // Erro não-transitório: não insiste.
+            break;
+          }
+          // Erro transitório (bloqueio/rate limit): espera mais e tenta novamente.
+          await sleep(3000 * attempts);
+        }
+      }
+    }
+
+    return custos;
+  }
 }
