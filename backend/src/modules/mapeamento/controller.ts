@@ -25,6 +25,23 @@ export class MapeamentoController {
   private prisma = getPrismaClient();
   private tiny = new TinyClient();
 
+  listar = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      requireAdmin(req);
+
+      const data = await this.prisma.mapeamentoSKU.findMany({
+        orderBy: { criadoEm: 'desc' },
+        take: 1000,
+        select: { skuShopee: true, codigoTiny: true, criadoEm: true },
+      });
+
+      res.json({ success: true, total: data.length, data });
+    } catch (error) {
+      logger.error('Erro ao listar mapeamentos SKU', { error });
+      next(error);
+    }
+  };
+
   pendentes = async (req: Request, res: Response, next: NextFunction) => {
     try {
       requireAdmin(req);
@@ -151,6 +168,85 @@ export class MapeamentoController {
       });
     } catch (error) {
       logger.error('Erro ao adicionar mapeamento SKU', { error });
+      next(error);
+    }
+  };
+
+  importar = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      requireAdmin(req);
+
+      const items = Array.isArray(req.body?.items) ? req.body.items : [];
+      const atualizarCusto = Boolean(req.body?.atualizarCusto ?? true);
+
+      if (!items.length) {
+        return res.status(400).json({ success: false, error: 'Informe items[] com {skuShopee,codigoTiny}' });
+      }
+
+      let total = 0;
+      let ok = 0;
+      let custoAtualizado = 0;
+      const errors: Array<{ skuShopee: string; codigoTiny: string; error: string }> = [];
+
+      for (const it of items) {
+        total++;
+        const skuShopee = String(it?.skuShopee || '').trim();
+        const codigoTiny = String(it?.codigoTiny || '').trim();
+        if (!skuShopee || !codigoTiny) {
+          errors.push({ skuShopee, codigoTiny, error: 'Campos obrigatórios ausentes' });
+          continue;
+        }
+
+        try {
+          await this.prisma.mapeamentoSKU.upsert({
+            where: { skuShopee },
+            create: { skuShopee, codigoTiny },
+            update: { codigoTiny },
+          });
+          ok++;
+
+          if (atualizarCusto) {
+            const custo = await this.tiny.buscarCustoPorSkuComFallbacks(codigoTiny);
+            if (typeof custo === 'number' && Number.isFinite(custo) && custo > 0) {
+              const existente = await this.prisma.produto.findUnique({
+                where: { sku: skuShopee },
+                select: { descricao: true },
+              });
+
+              await this.prisma.produto.upsert({
+                where: { sku: skuShopee },
+                create: {
+                  sku: skuShopee,
+                  descricao: existente?.descricao || skuShopee,
+                  custoReal: custo,
+                  custoStatus: 'OK',
+                  custoAtualizadoEm: new Date(),
+                  ativo: true,
+                },
+                update: {
+                  custoReal: custo,
+                  custoStatus: 'OK',
+                  custoAtualizadoEm: new Date(),
+                  ativo: true,
+                },
+              });
+              custoAtualizado++;
+            }
+          }
+        } catch (e: any) {
+          errors.push({ skuShopee, codigoTiny, error: String(e?.message || e) });
+        }
+      }
+
+      return res.json({
+        success: true,
+        total,
+        ok,
+        custoAtualizado,
+        errors,
+      });
+    } catch (error) {
+      logger.error('Erro ao importar mapeamentos SKU', { error });
       next(error);
     }
   };

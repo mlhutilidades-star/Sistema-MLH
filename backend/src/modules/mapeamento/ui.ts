@@ -46,12 +46,30 @@ export function mapeamentoUiHandler(_req: Request, res: Response) {
     <div id="results"></div>
   </div>
 
+  <div class="card">
+    <div class="row">
+      <div>
+        <div style="font-weight:600; margin-bottom:6px;">Importar em lote</div>
+        <div class="muted">Cole linhas no formato <span class="code">SKU,codigoTiny</span> (ou <span class="code">SKU=codigoTiny</span>). Um por linha.</div>
+      </div>
+    </div>
+    <div style="margin-top:10px;">
+      <textarea id="bulk" style="width:100%; min-height:140px; border-radius: 10px; border: 1px solid #2d3a55; background: #111a2e; color: #e6edf3; padding: 10px 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px;" placeholder="27083093496-ITEM A,12345\n27083093496-ITEM B,67890\n..."></textarea>
+    </div>
+    <div class="row" style="margin-top:10px;">
+      <button id="bulkImport">Importar + atualizar custo</button>
+      <span id="bulkStatus" class="muted"></span>
+    </div>
+  </div>
+
 <script>
   const $ = (id) => document.getElementById(id);
   const secretEl = $('secret');
   const daysEl = $('days');
   const statusEl = $('status');
   const resultsEl = $('results');
+  const bulkEl = $('bulk');
+  const bulkStatusEl = $('bulkStatus');
 
   secretEl.value = localStorage.getItem('mlh_admin_secret') || '';
   secretEl.addEventListener('change', () => localStorage.setItem('mlh_admin_secret', secretEl.value));
@@ -62,6 +80,36 @@ export function mapeamentoUiHandler(_req: Request, res: Response) {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data?.error || res.statusText);
     return data;
+  }
+
+  function parseBulkMappings(text) {
+    const lines = String(text || '').split(/\r?\n/);
+    const items = [];
+    for (const rawLine of lines) {
+      const line = String(rawLine || '').trim();
+      if (!line) continue;
+      if (line.startsWith('#')) continue;
+
+      const seps = [',', ';', '\t', '=', '|'];
+      let pos = -1;
+      let sep = '';
+      for (const s of seps) {
+        const p = line.indexOf(s);
+        if (p > 0) { pos = p; sep = s; break; }
+      }
+
+      if (pos < 0) {
+        throw new Error('Linha inválida (sem separador): ' + line);
+      }
+
+      const skuShopee = line.slice(0, pos).trim();
+      const codigoTiny = line.slice(pos + sep.length).trim();
+      if (!skuShopee || !codigoTiny) {
+        throw new Error('Linha inválida (campos vazios): ' + line);
+      }
+      items.push({ skuShopee, codigoTiny });
+    }
+    return items;
   }
 
   function escapeHtml(s) {
@@ -162,6 +210,38 @@ export function mapeamentoUiHandler(_req: Request, res: Response) {
   $('load').addEventListener('click', () => loadPendentes().catch((e) => {
     statusEl.textContent = 'Erro: ' + (e.message || String(e));
   }));
+
+  $('bulkImport').addEventListener('click', async () => {
+    try {
+      bulkStatusEl.textContent = 'Preparando...';
+      const items = parseBulkMappings(bulkEl.value);
+      if (!items.length) {
+        bulkStatusEl.textContent = 'Nada para importar.';
+        return;
+      }
+
+      bulkStatusEl.textContent = 'Importando ' + items.length + '...';
+      const r = await api('/api/mapeamento/importar', {
+        method: 'POST',
+        body: JSON.stringify({ items, atualizarCusto: true }),
+      });
+
+      const errCount = (r.errors || []).length;
+      bulkStatusEl.textContent =
+        'Importados: ' + (r.ok || 0) + '/' + (r.total || items.length) +
+        ' | Custos atualizados: ' + (r.custoAtualizado || 0) +
+        (errCount ? ' | Erros: ' + errCount : '');
+
+      if (errCount) {
+        console.error('Erros na importação:', r.errors);
+        alert('Importação finalizou com erros. Veja o console para detalhes.');
+      }
+    } catch (e) {
+      console.error(e);
+      bulkStatusEl.textContent = 'Erro: ' + (e.message || String(e));
+      alert(e.message || String(e));
+    }
+  });
 </script>
 </body>
 </html>`);
