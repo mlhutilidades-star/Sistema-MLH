@@ -20,7 +20,7 @@ model Produto {
   sku           String   @unique
   descricao     String
   ncm           String?
-  custoReal     Float    // Calculado por fórmula complexa
+  custoReal     Float    // Campo mestre de custo (Tiny)
   precoVenda    Float?
   idTiny        String?  @unique
   estoqueTiny   Int?
@@ -33,6 +33,72 @@ model Produto {
   @@map("produtos")
   @@index([sku])
   @@index([idTiny])
+}
+
+// ==========================================
+// PEDIDOS - Rentabilidade real por venda
+// Renda = escrow_amount (Shopee)
+// Custo = soma de Produto.custoReal * qty
+// ==========================================
+model Pedido {
+  id           String   @id @default(cuid())
+  pedidoId     String   @unique // order_sn Shopee
+  data         DateTime
+  cliente      String?
+  totalBruto   Float    @default(0)
+  taxasShopee  Float    @default(0)
+  rendaLiquida Float    @default(0)
+  custoProdutos Float   @default(0)
+  lucro        Float    @default(0)
+  margem       Float    @default(0) // (lucro / rendaLiquida) * 100
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  itens PedidoItem[]
+
+  @@map("pedidos")
+  @@index([data])
+}
+
+model PedidoItem {
+  id            String   @id @default(cuid())
+  pedidoId      String
+  sku           String
+  descricao     String?
+  quantidade    Int      @default(1)
+  precoVenda    Float?   // preço do item (quando disponível)
+  rendaLiquida  Float    @default(0) // renda alocada do pedido para o item
+  custoUnitario Float    @default(0)
+  custoTotal    Float    @default(0)
+  lucro         Float    @default(0)
+
+  pedido Pedido @relation(fields: [pedidoId], references: [pedidoId], onDelete: Cascade)
+
+  @@map("pedido_itens")
+  @@unique([pedidoId, sku])
+  @@index([sku])
+}
+
+// ==========================================
+// ANUNCIOS - visão simples (por dia/campanha)
+// Obs: sem atribuição direta, serve como agregação de gasto.
+// ==========================================
+model Anuncio {
+  id            String   @id @default(cuid())
+  data          DateTime @db.Date
+  campanhaId    String
+  campanhaNome  String?
+  gasto         Float    @default(0)
+  rendaGerada   Float    @default(0)
+  custoProdutos Float    @default(0)
+  lucro         Float    @default(0)
+  roi           Float    @default(0)
+  criadoEm      DateTime @default(now())
+  atualizadoEm  DateTime @updatedAt
+
+  @@map("anuncios")
+  @@unique([data, campanhaId])
+  @@index([data])
 }
 
 // ==========================================

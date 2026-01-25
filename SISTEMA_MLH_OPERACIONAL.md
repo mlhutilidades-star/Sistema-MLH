@@ -94,3 +94,27 @@ Importante: tarefas que acessam o Postgres privado devem rodar **dentro do conta
 - Uptime externo: configurar um monitor (ex: UptimeRobot/BetterUptime) para checar `GET /health` a cada 1–5 min e alertar em falha.
 - Script de health + contagens do DB (manual/cron externo):
   - `railway ssh -s api-backend node scripts/monitor-health.js`
+
+## 💰 Gestão de Margem e Lucro
+
+- Fórmula: **Lucro Real = Renda Líquida (Escrow Shopee) - Custo Real (Tiny)**.
+- Renda Líquida: `escrow_amount` do `order.get_order_detail` (Shopee).
+- Custo Real: `Produto.custoReal` (Tiny) buscado por SKU.
+- Regra de catálogo: o sistema **ignora produtos do Tiny** que não estejam à venda na Shopee; o sync parte dos SKUs da Shopee.
+- Sync automático a cada 4 horas mantém produtos/pedidos atualizados.
+
+### Comandos
+
+- Calcular margem completa (produtos + pedidos) em produção:
+  - `railway ssh -s api-backend node dist/scripts/sync.js --service=shopee --full-margin-calc`
+
+### Relatórios
+
+- Lista simples (pedido, renda, custo, lucro, margem):
+  - `GET /api/relatorios/margem`
+- Detalhado por pedidos:
+  - `GET /api/relatorios/lucro-pedidos`
+- Agregado por produto (SKU):
+  - `GET /api/relatorios/lucro-produtos`
+- Anúncios (quando houver dados em ConsumoAds):
+  - `GET /api/relatorios/lucro-anuncios`

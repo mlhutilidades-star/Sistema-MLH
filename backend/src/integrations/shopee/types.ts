@@ -86,6 +86,7 @@ export interface ShopeeOrder {
   buyer_username: string;
   estimated_shipping_fee: number;
   total_amount: number;
+  escrow_amount?: number; // renda líquida recebida (após taxas), quando disponível
   actual_shipping_fee: number;
   payment_method: string;
   item_list: Array<{

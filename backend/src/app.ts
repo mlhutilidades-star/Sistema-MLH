@@ -13,6 +13,7 @@ import financeiroRoutes from './modules/financeiro/routes';
 import adsRoutes from './modules/ads/routes';
 import conciliacaoRoutes from './modules/conciliacao/routes';
 import shopeeRoutes from './modules/shopee/routes';
+import relatoriosRoutes from './modules/relatorios/routes';
 
 // Shared
 import { logger } from './shared/logger';
@@ -115,6 +116,7 @@ app.use('/api/financeiro', financeiroRoutes);
 app.use('/api/ads', adsRoutes);
 app.use('/api/conciliacao', conciliacaoRoutes);
 app.use('/api/shopee', shopeeRoutes);
+app.use('/api/relatorios', relatoriosRoutes);
 
 // ==========================================
 // ERROR HANDLING

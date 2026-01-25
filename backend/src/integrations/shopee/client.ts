@@ -303,6 +303,7 @@ export class ShopeeClient {
               'actual_shipping_fee',
               'payment_method',
               'total_amount',
+              'escrow_amount',
               'item_list',
             ],
           });

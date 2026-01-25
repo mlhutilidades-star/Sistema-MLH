@@ -415,4 +415,49 @@ export class TinyClient {
     logger.info(`Total de ${results.length} páginas de produtos buscadas`);
     return results;
   }
+
+  /**
+   * Buscar custo (preço de custo) por SKU/código no Tiny.
+   *
+   * Observação: como a integração usa endpoints legacy (API2) para `*.pesquisa`,
+   * este método funciona mesmo quando `TINY_BASE_URL` está em /api/v3.
+   */
+  async buscarCustoPorSKU(sku: string): Promise<number | null> {
+    const codigo = String(sku || '').trim();
+    if (!codigo) return null;
+
+    try {
+      const response = await retryWithBackoff(
+        async () => {
+          return await this.getWithTinyAuth<TinyProdutoResponse>('/produtos.pesquisa', {
+            pagina: 1,
+            formato: 'json',
+            pesquisa: codigo,
+          });
+        },
+        config.tiny.maxRetries
+      );
+
+      if (!this.isTinySuccess(response.retorno)) {
+        throw new Error(this.tinyStatusMessage(response.retorno));
+      }
+
+      const produtos = response.retorno.produtos || [];
+      const encontrado = produtos
+        .map((p) => p.produto)
+        .find((p) => String(p.codigo || '').trim().toLowerCase() === codigo.toLowerCase());
+
+      const produto = encontrado || produtos[0]?.produto;
+      if (!produto) return null;
+
+      if (typeof produto.preco_custo === 'number' && Number.isFinite(produto.preco_custo)) {
+        return produto.preco_custo;
+      }
+
+      // Sem preco_custo: preferimos não inventar custo; retorna null.
+      return null;
+    } catch (error) {
+      this.handleTinyError(error);
+    }
+  }
 }
