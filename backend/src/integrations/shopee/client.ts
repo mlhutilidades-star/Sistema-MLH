@@ -37,13 +37,19 @@ export class ShopeeClient {
       },
     });
 
+    const sanitizeUrl = (url: string) => {
+      if (!url) return url;
+      // Evitar vazar tokens em logs
+      return url.replace(/(access_token=)[^&]+/gi, '$1***');
+    };
+
     // Interceptor para rate limiting
     this.client.interceptors.request.use(async (config) => {
       await this.enforceRateLimit();
       const startTime = Date.now();
       (config as any).startTime = startTime;
       
-      loggers.api.request(config.method?.toUpperCase() || 'GET', config.url || '', config.params);
+      loggers.api.request(config.method?.toUpperCase() || 'GET', sanitizeUrl(config.url || ''), config.params);
       return config;
     });
 
@@ -53,7 +59,7 @@ export class ShopeeClient {
         const duration = Date.now() - (response.config as any).startTime;
         loggers.api.response(
           response.config.method?.toUpperCase() || 'GET',
-          response.config.url || '',
+          sanitizeUrl(response.config.url || ''),
           response.status,
           duration
         );
@@ -79,7 +85,7 @@ export class ShopeeClient {
         if (error.config) {
           loggers.api.error(
             error.config.method?.toUpperCase() || 'GET',
-            error.config.url || '',
+            sanitizeUrl(error.config.url || ''),
             error
           );
         }
@@ -200,13 +206,18 @@ export class ShopeeClient {
   async getItemBaseInfo(itemIds: number[]): Promise<ShopeeItemDetailResponse> {
     try {
       const path = '/product/get_item_base_info';
-      const url = buildShopeeUrl(path, {}, this.accessToken);
+      // Observado em runtime: endpoint aceita GET; POST retorna 404.
+      const url = buildShopeeUrl(
+        path,
+        {
+          item_id_list: itemIds.map(String).join(','),
+        },
+        this.accessToken
+      );
 
       const response = await retryWithBackoff(
         async () => {
-          const { data } = await this.client.post<ShopeeItemDetailResponse>(url, {
-            item_id_list: itemIds,
-          });
+          const { data } = await this.client.get<ShopeeItemDetailResponse>(url);
           return this.validateResponse(data);
         },
         config.shopee.maxRetries
