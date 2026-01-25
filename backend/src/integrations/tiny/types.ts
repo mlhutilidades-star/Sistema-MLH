@@ -31,7 +31,7 @@ export interface TinyProduto {
 
 export interface TinyProdutoResponse {
   retorno: {
-    status_processamento: number;
+    status_processamento?: number;
     status: string;
     pagina?: number;
     numero_paginas?: number;
@@ -60,7 +60,7 @@ export interface TinyContaPagar {
 
 export interface TinyContaPagarResponse {
   retorno: {
-    status_processamento: number;
+    status_processamento?: number;
     status: string;
     pagina?: number;
     numero_paginas?: number;
@@ -88,7 +88,7 @@ export interface TinyContaReceber {
 
 export interface TinyContaReceberResponse {
   retorno: {
-    status_processamento: number;
+    status_processamento?: number;
     status: string;
     pagina?: number;
     numero_paginas?: number;
@@ -109,7 +109,7 @@ export interface TinyEstoque {
 
 export interface TinyEstoqueResponse {
   retorno: {
-    status_processamento: number;
+    status_processamento?: number;
     status: string;
     produto?: TinyEstoque;
   };
@@ -117,9 +117,10 @@ export interface TinyEstoqueResponse {
 
 export interface TinyError {
   retorno: {
-    status_processamento: number;
+    status_processamento?: number;
     status: string;
     codigo_erro?: number;
+    mensagens?: Array<{ mensagem: string }>;
     erros?: Array<{
       erro: string;
     }>;

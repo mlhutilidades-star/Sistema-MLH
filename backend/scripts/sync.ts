@@ -8,52 +8,78 @@ import { AdsService } from '../src/modules/ads/service';
 import { logger } from '../src/shared/logger';
 import { connectDatabase, disconnectDatabase } from '../src/shared/database';
 
+type SyncService = 'all' | 'tiny' | 'shopee';
+
+function parseServiceArg(argv: string[]): SyncService {
+  const idx = argv.findIndex((a) => a === '--service' || a.startsWith('--service='));
+  if (idx === -1) return 'all';
+
+  const arg = argv[idx];
+  const value = arg.includes('=') ? arg.split('=')[1] : argv[idx + 1];
+  if (!value) return 'all';
+
+  const v = value.toLowerCase();
+  if (v === 'tiny') return 'tiny';
+  if (v === 'shopee') return 'shopee';
+  if (v === 'all') return 'all';
+  return 'all';
+}
+
 async function syncManual() {
   try {
-    logger.info('🚀 Iniciando sincronização manual completa...');
+    const service = parseServiceArg(process.argv.slice(2));
+    logger.info(`🚀 Iniciando sincronização manual (${service})...`);
 
     // Conectar ao banco
     await connectDatabase();
 
-    // 1. Sincronizar produtos do Tiny
-    logger.info('📦 Sincronizando produtos do Tiny...');
-    const produtoService = new ProdutoService();
-    const resultadoProdutos = await produtoService.syncProdutosTiny();
-    logger.info(`✅ Produtos: ${resultadoProdutos.total} processados`);
+    const shouldRunTiny = service === 'all' || service === 'tiny';
+    const shouldRunShopee = service === 'all' || service === 'shopee';
 
-    // 2. Sincronizar contas a pagar
-    logger.info('💰 Sincronizando contas a pagar...');
-    const financeiroService = new FinanceiroService();
-    const resultadoPagar = await financeiroService.syncContasPagar();
-    logger.info(`✅ Contas a pagar: ${resultadoPagar.total} processadas`);
+    // Tiny: produtos + financeiro
+    if (shouldRunTiny) {
+      logger.info('📦 Sincronizando produtos do Tiny...');
+      const produtoService = new ProdutoService();
+      const resultadoProdutos = await produtoService.syncProdutosTiny();
+      logger.info(`✅ Tiny Produtos: ${resultadoProdutos.total} processados`);
 
-    // 3. Sincronizar contas a receber
-    logger.info('💵 Sincronizando contas a receber...');
-    const resultadoReceber = await financeiroService.syncContasReceber();
-    logger.info(`✅ Contas a receber: ${resultadoReceber.total} processadas`);
+      logger.info('💰 Sincronizando contas a pagar...');
+      const financeiroService = new FinanceiroService();
+      const resultadoPagar = await financeiroService.syncContasPagar();
+      logger.info(`✅ Contas a pagar: ${resultadoPagar.total} processadas`);
 
-    // 4. Sincronizar ads (se tiver access token)
-    const shopeeAccessToken = process.env.SHOPEE_ACCESS_TOKEN;
-    if (shopeeAccessToken) {
-      logger.info('📊 Sincronizando dados de ads do Shopee...');
-      
-      const adsService = new AdsService(shopeeAccessToken);
-      const hoje = new Date();
-      const trintaDiasAtras = new Date();
-      trintaDiasAtras.setDate(trintaDiasAtras.getDate() - 30);
+      logger.info('💵 Sincronizando contas a receber...');
+      const resultadoReceber = await financeiroService.syncContasReceber();
+      logger.info(`✅ Contas a receber: ${resultadoReceber.total} processadas`);
+    }
 
-      const startDate = trintaDiasAtras.toISOString().split('T')[0];
-      const endDate = hoje.toISOString().split('T')[0];
+    // Shopee: produtos + ads + rateio (se tiver tokens)
+    if (shouldRunShopee) {
+      const shopeeAccessToken = process.env.SHOPEE_ACCESS_TOKEN;
+      if (!shopeeAccessToken) {
+        logger.warn('⚠️  SHOPEE_ACCESS_TOKEN não configurado, pulando sync Shopee');
+      } else {
+        logger.info('🛒 Sincronizando produtos do Shopee...');
+        const produtoServiceShopee = new ProdutoService(shopeeAccessToken);
+        const resultadoShopeeProdutos = await produtoServiceShopee.syncProdutosShopee();
+        logger.info(`✅ Shopee Produtos: ${resultadoShopeeProdutos.total} processados`);
 
-      const resultadoAds = await adsService.syncAdsShopee(startDate, endDate);
-      logger.info(`✅ Ads: ${resultadoAds.total} registros sincronizados`);
+        logger.info('📊 Sincronizando dados de ads do Shopee...');
+        const adsService = new AdsService(shopeeAccessToken);
+        const hoje = new Date();
+        const trintaDiasAtras = new Date();
+        trintaDiasAtras.setDate(trintaDiasAtras.getDate() - 30);
 
-      // Ratear custos
-      logger.info('🔄 Rateando custos de ads...');
-      const resultadoRateio = await adsService.ratearCustosAds(trintaDiasAtras, hoje);
-      logger.info(`✅ Rateio: ${resultadoRateio.atualizados} contas atualizadas`);
-    } else {
-      logger.warn('⚠️  SHOPEE_ACCESS_TOKEN não configurado, pulando sync de ads');
+        const startDate = trintaDiasAtras.toISOString().split('T')[0];
+        const endDate = hoje.toISOString().split('T')[0];
+
+        const resultadoAds = await adsService.syncAdsShopee(startDate, endDate);
+        logger.info(`✅ Ads: ${resultadoAds.total} registros sincronizados`);
+
+        logger.info('🔄 Rateando custos de ads...');
+        const resultadoRateio = await adsService.ratearCustosAds(trintaDiasAtras, hoje);
+        logger.info(`✅ Rateio: ${resultadoRateio.atualizados} contas atualizadas`);
+      }
     }
 
     logger.info('🎉 Sincronização manual concluída com sucesso!');

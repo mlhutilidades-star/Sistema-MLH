@@ -16,31 +16,43 @@ import type {
 
 export class TinyClient {
   private client: AxiosInstance;
+  private clientApi2: AxiosInstance;
   private lastRequestTime: number = 0;
   private requestCount: number = 0;
   private readonly minRequestInterval = 600; // 600ms entre requests (~100 req/min)
 
   constructor() {
-    this.client = axios.create({
-      baseURL: config.tiny.baseUrl,
+    this.client = this.createInstrumentedClient(config.tiny.baseUrl, {
+      defaultHeaders: { 'Content-Type': 'application/json' },
+    });
+
+    this.clientApi2 = this.createInstrumentedClient(this.deriveApi2BaseUrl(config.tiny.baseUrl), {
+      defaultHeaders: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    });
+  }
+
+  private createInstrumentedClient(
+    baseURL: string,
+    opts?: { defaultHeaders?: Record<string, string> }
+  ): AxiosInstance {
+    const instance = axios.create({
+      baseURL,
       timeout: config.tiny.timeout,
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: opts?.defaultHeaders,
     });
 
     // Interceptor para rate limiting
-    this.client.interceptors.request.use(async (config) => {
+    instance.interceptors.request.use(async (req) => {
       await this.enforceRateLimit();
       const startTime = Date.now();
-      (config as any).startTime = startTime;
-      
-      loggers.api.request(config.method?.toUpperCase() || 'GET', config.url || '', config.params);
-      return config;
+      (req as any).startTime = startTime;
+
+      loggers.api.request(req.method?.toUpperCase() || 'GET', req.url || '', req.params);
+      return req;
     });
 
     // Interceptor para logging de respostas
-    this.client.interceptors.response.use(
+    instance.interceptors.response.use(
       (response) => {
         const duration = Date.now() - (response.config as any).startTime;
         loggers.api.response(
@@ -62,6 +74,25 @@ export class TinyClient {
         return Promise.reject(error);
       }
     );
+
+    return instance;
+  }
+
+  private deriveApi2BaseUrl(baseUrl: string): string {
+    // Muitos tokens em produção são do Tiny API2 (legacy).
+    // Se o ambiente estiver configurado como /api/v3, tentamos automaticamente /api2.
+    const normalized = baseUrl.replace(/\/+$/, '');
+    if (normalized.endsWith('/api/v3')) {
+      return normalized.replace(/\/api\/v3$/, '/api2');
+    }
+    if (normalized.endsWith('/api2')) return normalized;
+    // Fallback: mantém a base, mas permite override via TINY_BASE_URL.
+    return normalized;
+  }
+
+  private isLegacyApi2Endpoint(path: string): boolean {
+    // Endpoints do Tiny API2 tipicamente têm formato "produto.obter", "produtos.pesquisa", etc.
+    return path.includes('.');
   }
 
   private buildAuthHeaders(): Record<string, string> {
@@ -69,8 +100,43 @@ export class TinyClient {
     return { Authorization: `Bearer ${config.tiny.apiKey}` };
   }
 
+  private toFormUrlEncoded(payload: Record<string, any>): string {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(payload)) {
+      if (value === undefined || value === null) continue;
+      params.append(key, String(value));
+    }
+    return params.toString();
+  }
+
+  private async postApi2<T>(endpoint: string, params: Record<string, any>): Promise<T> {
+    if (!config.tiny.apiKey) {
+      throw new Error('TINY_API_KEY não configurada');
+    }
+
+    // API2 usa POST form-urlencoded e o token no body.
+    const endpointName = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
+    const url = `/${endpointName}.php`;
+    const body = this.toFormUrlEncoded({
+      token: config.tiny.apiKey,
+      ...params,
+    });
+
+    const { data } = await this.clientApi2.post<T>(url, body, {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+    });
+    return data;
+  }
+
   private async getWithTinyAuth<T>(path: string, params: Record<string, any>): Promise<T> {
     try {
+      // Se for um endpoint legacy, usa API2 automaticamente.
+      if (this.isLegacyApi2Endpoint(path)) {
+        return await this.postApi2<T>(path, params);
+      }
+
       const { data } = await this.client.get<T>(path, {
         params,
         headers: this.buildAuthHeaders(),
@@ -79,6 +145,12 @@ export class TinyClient {
     } catch (error) {
       // Fallback: alguns ambientes do Tiny aceitam o token como parâmetro (token=...).
       if (axios.isAxiosError(error) && error.response?.status === 403 && config.tiny.apiKey) {
+        // 1) tenta repetir como API2 (POST) se parecer endpoint legacy
+        if (this.isLegacyApi2Endpoint(path)) {
+          return await this.postApi2<T>(path, params);
+        }
+
+        // 2) fallback final: token como query param
         const { data } = await this.client.get<T>(path, {
           params: { ...params, token: config.tiny.apiKey },
         });
@@ -86,6 +158,26 @@ export class TinyClient {
       }
       throw error;
     }
+  }
+
+  private isTinySuccess(retorno: any): boolean {
+    if (!retorno) return false;
+    const statusProc = retorno.status_processamento;
+    if (typeof statusProc === 'number') {
+      // API v3 costuma usar 3 = OK
+      return statusProc === 3;
+    }
+
+    // API2 costuma usar apenas status textual
+    const status = String(retorno.status || '').trim().toUpperCase();
+    return status === 'OK';
+  }
+
+  private tinyStatusMessage(retorno: any): string {
+    if (!retorno) return 'Erro desconhecido';
+    const status = retorno.status;
+    const msg = retorno?.mensagens?.[0]?.mensagem;
+    return msg || status || 'Erro desconhecido';
   }
 
   /**
@@ -115,6 +207,11 @@ export class TinyClient {
         const errorMessages = tinyError.retorno.erros.map((e) => e.erro).join(', ');
         throw new Error(`Tiny API Error: ${errorMessages}`);
       }
+
+      if (tinyError?.retorno?.mensagens?.length) {
+        const msgs = tinyError.retorno.mensagens.map((m) => m.mensagem).join(', ');
+        throw new Error(`Tiny API Error: ${msgs}`);
+      }
       
       throw new Error(`Tiny API Error: ${error.message}`);
     }
@@ -137,8 +234,8 @@ export class TinyClient {
         config.tiny.maxRetries
       );
 
-      if (response.retorno.status_processamento !== 3) {
-        throw new Error(response.retorno.status || 'Erro desconhecido ao buscar produtos');
+      if (!this.isTinySuccess(response.retorno)) {
+        throw new Error(this.tinyStatusMessage(response.retorno));
       }
 
       return response;
@@ -162,8 +259,8 @@ export class TinyClient {
         config.tiny.maxRetries
       );
 
-      if (response.retorno.status_processamento !== 3) {
-        throw new Error(response.retorno.status || 'Erro desconhecido ao obter produto');
+      if (!this.isTinySuccess(response.retorno)) {
+        throw new Error(this.tinyStatusMessage(response.retorno));
       }
 
       return response;
@@ -187,8 +284,8 @@ export class TinyClient {
         config.tiny.maxRetries
       );
 
-      if (response.retorno.status_processamento !== 3) {
-        throw new Error(response.retorno.status || 'Erro desconhecido ao buscar estoque');
+      if (!this.isTinySuccess(response.retorno)) {
+        throw new Error(this.tinyStatusMessage(response.retorno));
       }
 
       return response;
@@ -214,8 +311,8 @@ export class TinyClient {
         config.tiny.maxRetries
       );
 
-      if (response.retorno.status_processamento !== 3) {
-        throw new Error(response.retorno.status || 'Erro desconhecido ao buscar contas a pagar');
+      if (!this.isTinySuccess(response.retorno)) {
+        throw new Error(this.tinyStatusMessage(response.retorno));
       }
 
       return response;
@@ -241,8 +338,8 @@ export class TinyClient {
         config.tiny.maxRetries
       );
 
-      if (response.retorno.status_processamento !== 3) {
-        throw new Error(response.retorno.status || 'Erro desconhecido ao buscar contas a receber');
+      if (!this.isTinySuccess(response.retorno)) {
+        throw new Error(this.tinyStatusMessage(response.retorno));
       }
 
       return response;
