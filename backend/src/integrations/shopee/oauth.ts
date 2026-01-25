@@ -67,7 +67,7 @@ function extractAxiosErrorMessage(error: unknown): string {
 
 export async function exchangeCodeForTokens(input: {
   code: string;
-  shopId: number;
+  shopId?: number;
   mainAccountId?: number;
 }): Promise<ShopeeTokenResponse> {
   if (!config.shopee.partnerId || !config.shopee.partnerKey) {
@@ -77,14 +77,25 @@ export async function exchangeCodeForTokens(input: {
   const url = buildSignedUrl('/auth/access_token/get');
 
   try {
+    const body: any = {
+      partner_id: config.shopee.partnerId,
+      code: input.code,
+    };
+
+    // Para algumas autorizações, a Shopee retorna `main_account_id`.
+    // Nesses casos, a troca do code deve usar `main_account_id` (e não `shop_id`).
+    if (typeof input.mainAccountId === 'number' && Number.isFinite(input.mainAccountId)) {
+      body.main_account_id = input.mainAccountId;
+    } else {
+      if (typeof input.shopId !== 'number' || !Number.isFinite(input.shopId)) {
+        throw new Error('shop_id ausente para troca de code');
+      }
+      body.shop_id = input.shopId;
+    }
+
     const { data } = await axios.post<ShopeeApiEnvelope<ShopeeTokenResponse>>(
       url,
-      {
-        partner_id: config.shopee.partnerId,
-        shop_id: input.shopId,
-        code: input.code,
-        ...(typeof input.mainAccountId === 'number' ? { main_account_id: input.mainAccountId } : {}),
-      },
+      body,
       {
         headers: {
           'Content-Type': 'application/json',

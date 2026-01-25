@@ -72,6 +72,7 @@ router.get('/oauth/callback', (req: Request, res: Response) => {
     receivedAt: latest.receivedAt,
     shopId: latest.shopId,
     hasCode: !!code,
+    hasMainAccountId: Number.isFinite(mainAccountId),
     message: 'Callback Shopee recebido. Agora é possível configurar SHOPEE_SHOP_ID no Railway.',
   });
 });
@@ -101,6 +102,7 @@ router.post('/oauth/callback', (req: Request, res: Response) => {
     receivedAt: latest.receivedAt,
     shopId: latest.shopId,
     hasCode: !!code,
+    hasMainAccountId: Number.isFinite(mainAccountId),
   });
 });
 
@@ -112,6 +114,7 @@ router.get('/oauth/last', (_req: Request, res: Response) => {
           shopId: latest.shopId,
           receivedAt: latest.receivedAt,
           hasCode: !!latestCode,
+          hasMainAccountId: Number.isFinite(latestMainAccountId),
         }
       : null,
   });
@@ -135,14 +138,20 @@ router.post('/oauth/exchange', async (req: Request, res: Response) => {
     if (!code) {
       return res.status(400).json({ success: false, error: 'code ausente' });
     }
-    if (!shopId || !Number.isFinite(shopId)) {
-      return res.status(400).json({ success: false, error: 'shop_id ausente' });
+
+    const hasShopId = typeof shopId === 'number' && Number.isFinite(shopId);
+    const hasMainAccountId = typeof mainAccountId === 'number' && Number.isFinite(mainAccountId);
+    if (!hasShopId && !hasMainAccountId) {
+      return res.status(400).json({
+        success: false,
+        error: 'shop_id ou main_account_id ausente',
+      });
     }
 
     const tokens = await exchangeCodeForTokens({
       code,
-      shopId: Number(shopId),
-      ...(Number.isFinite(mainAccountId) ? { mainAccountId: Number(mainAccountId) } : {}),
+      shopId: hasShopId ? Number(shopId) : undefined,
+      mainAccountId: hasMainAccountId ? Number(mainAccountId) : undefined,
     });
 
     // Não logar tokens.
