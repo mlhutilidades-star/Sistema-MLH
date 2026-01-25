@@ -188,7 +188,7 @@ async function syncProdutosCustoPorSkuShopee(options?: { onlySoldSkus?: boolean;
       let custoStatus: 'OK' | 'PENDENTE_SYNC' = 'OK';
 
       try {
-        novoCusto = await tiny.buscarCustoPorSKU(sku);
+        novoCusto = await tiny.buscarCustoPorSkuComFallbacks(sku);
       } catch (e: any) {
         // Blindagem: API bloqueada/rate limit => NÃO sobrescreve custo por 0
         const msg = String(e?.message || e);

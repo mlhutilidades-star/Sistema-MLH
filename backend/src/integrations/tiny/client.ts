@@ -234,6 +234,37 @@ export class TinyClient {
     );
   }
 
+  private buildSkuCandidates(sku: string): string[] {
+    const raw = String(sku || '').trim();
+    if (!raw) return [];
+
+    const candidates: string[] = [];
+    const add = (v: string | undefined | null) => {
+      const s = String(v || '').trim();
+      if (!s) return;
+      if (!candidates.includes(s)) candidates.push(s);
+    };
+
+    add(raw);
+
+    // Prefixo numérico (muito comum como código base do Tiny)
+    const mNum = raw.match(/^(\d{6,})/);
+    if (mNum?.[1]) add(mNum[1]);
+
+    // Parte antes do primeiro espaço (remove descrições de variação)
+    if (raw.includes(' ')) add(raw.split(' ')[0]);
+
+    // Parte antes do primeiro '-' (remove sufixos de variação)
+    if (raw.includes('-')) add(raw.split('-')[0]);
+
+    // Se começar com número e tiver '-', pega só o número (reforça)
+    const mNumDash = raw.match(/^(\d{6,})-/);
+    if (mNumDash?.[1]) add(mNumDash[1]);
+
+    // Limitar para evitar explosão de chamadas
+    return candidates.slice(0, 4);
+  }
+
   /**
    * Enforçar rate limiting (100 req/min)
    */
@@ -495,12 +526,27 @@ export class TinyClient {
   }
 
   /**
+   * Busca custo com fallbacks de SKU (útil quando o SKU do marketplace tem variações/sufixos).
+   */
+  async buscarCustoPorSkuComFallbacks(sku: string): Promise<number | null> {
+    const candidates = this.buildSkuCandidates(sku);
+    for (const c of candidates) {
+      const custo = await this.buscarCustoPorSKU(c);
+      if (typeof custo === 'number' && Number.isFinite(custo) && custo > 0) return custo;
+    }
+    return null;
+  }
+
+  /**
    * Buscar custos em lote (sequencial) para evitar bloqueio da API.
    * Prioriza custo_medio e usa preco_custo como fallback (via buscarCustoPorSKU).
    */
   async buscarCustosPorSKUs(skus: string[]): Promise<Map<string, number>> {
     const custos = new Map<string, number>();
     const uniqueSkus = Array.from(new Set((skus || []).map((s) => String(s || '').trim()).filter(Boolean)));
+
+    // Cache por candidato para evitar reconsultar o mesmo código base (ex: prefixo numérico)
+    const cacheByCandidate = new Map<string, number | null>();
 
     for (const sku of uniqueSkus) {
       // Delay padrão para respeitar rate limit (~100 req/min)
@@ -510,7 +556,19 @@ export class TinyClient {
       while (attempts < 3) {
         attempts++;
         try {
-          const custo = await this.buscarCustoPorSKU(sku);
+          const candidates = this.buildSkuCandidates(sku);
+          let custo: number | null = null;
+
+          for (const c of candidates) {
+            if (cacheByCandidate.has(c)) {
+              custo = cacheByCandidate.get(c) ?? null;
+            } else {
+              custo = await this.buscarCustoPorSKU(c);
+              cacheByCandidate.set(c, custo);
+            }
+            if (typeof custo === 'number' && Number.isFinite(custo) && custo > 0) break;
+          }
+
           if (typeof custo === 'number' && Number.isFinite(custo) && custo > 0) {
             custos.set(sku, custo);
           }
