@@ -43,8 +43,18 @@ function buildSignedUrl(path: string): string {
   return `${config.shopee.baseUrl}${path}?${params.toString()}`;
 }
 
-function unwrapResponse<T>(data: ShopeeApiEnvelope<T>): T {
-  if (!data) throw new Error('Resposta vazia da Shopee');
+function unwrapResponse<T>(raw: unknown): T {
+  if (!raw) throw new Error('Resposta vazia da Shopee');
+
+  if (typeof raw !== 'object') {
+    logger.warn('Shopee OAuth API returned non-object payload', {
+      payloadType: typeof raw,
+    });
+    throw new Error('Resposta inválida da Shopee (payload não-JSON)');
+  }
+
+  const data = raw as ShopeeApiEnvelope<T>;
+
   if (data.error && data.error !== '') {
     const requestId = data.request_id ? ` (request_id=${data.request_id})` : '';
     logger.warn('Shopee OAuth API returned error', {
@@ -54,9 +64,17 @@ function unwrapResponse<T>(data: ShopeeApiEnvelope<T>): T {
     });
     throw new Error(`Shopee OAuth Error: ${data.error} - ${data.message}${requestId}`);
   }
+
   if (!data.response) {
+    logger.warn('Shopee OAuth API returned unexpected envelope', {
+      hasErrorField: 'error' in (data as any),
+      hasMessageField: 'message' in (data as any),
+      hasResponseField: 'response' in (data as any),
+      requestId: (data as any).request_id,
+    });
     throw new Error('Resposta inválida da Shopee (sem response)');
   }
+
   return data.response;
 }
 
