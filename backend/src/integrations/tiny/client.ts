@@ -180,7 +180,7 @@ export class TinyClient {
     return `${dd}/${mm}/${yyyy}`;
   }
 
-  private resolveTinyDateRange(dataInicio?: string, dataFim?: string): { dataInicial: string; dataFinal: string } {
+  private resolveTinyDateRange(dataInicio?: string, dataFim?: string): { ini: string; fim: string } {
     // Tiny API2 normalmente usa dd/mm/aaaa.
     // Se não houver período explícito, usa últimos 30 dias.
     const end = dataFim ? new Date(dataFim) : new Date();
@@ -188,8 +188,8 @@ export class TinyClient {
     if (!dataInicio) start.setDate(start.getDate() - 30);
 
     return {
-      dataInicial: this.formatTinyDate(start),
-      dataFinal: this.formatTinyDate(end),
+      ini: this.formatTinyDate(start),
+      fim: this.formatTinyDate(end),
     };
   }
 
@@ -338,13 +338,13 @@ export class TinyClient {
    */
   async buscarContasPagar(dataInicio?: string, dataFim?: string, pagina: number = 1): Promise<TinyContaPagarResponse> {
     try {
-      const { dataInicial, dataFinal } = this.resolveTinyDateRange(dataInicio, dataFim);
+      const { ini, fim } = this.resolveTinyDateRange(dataInicio, dataFim);
 
       const response = await retryWithBackoff(
         async () => {
           return await this.getWithTinyAuth<TinyContaPagarResponse>('/contas.pagar.pesquisa', {
-            dataInicial,
-            dataFinal,
+            data_ini_vencimento: ini,
+            data_fim_vencimento: fim,
             pagina,
             formato: 'json',
           });
@@ -367,13 +367,13 @@ export class TinyClient {
    */
   async buscarContasReceber(dataInicio?: string, dataFim?: string, pagina: number = 1): Promise<TinyContaReceberResponse> {
     try {
-      const { dataInicial, dataFinal } = this.resolveTinyDateRange(dataInicio, dataFim);
+      const { ini, fim } = this.resolveTinyDateRange(dataInicio, dataFim);
 
       const response = await retryWithBackoff(
         async () => {
           return await this.getWithTinyAuth<TinyContaReceberResponse>('/contas.receber.pesquisa', {
-            dataInicial,
-            dataFinal,
+            data_ini_vencimento: ini,
+            data_fim_vencimento: fim,
             pagina,
             formato: 'json',
           });
