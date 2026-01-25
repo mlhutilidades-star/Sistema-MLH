@@ -29,11 +29,16 @@ $exchangeEndpoint = Join-Url $BaseUrl "/api/shopee/oauth/exchange"
 
 Write-Host "1) Garantindo OAUTH_ADMIN_SECRET no Railway..."
 $secret = if ($AdminSecret -and $AdminSecret.Trim().Length -gt 0) { $AdminSecret } else { New-RandomSecret }
-# Set sempre (idempotente). Não imprime o valor.
-& railway variables set -s $RailwayService "OAUTH_ADMIN_SECRET=$secret" | Out-Null
 
-# `railway variables set` reinicia o serviço. Aguarde para o backend ler o novo secret.
-Start-Sleep -Seconds 15
+if (-not ($AdminSecret -and $AdminSecret.Trim().Length -gt 0)) {
+  # Set apenas quando não foi fornecido (evita restart e perda do `code` em memória).
+  & railway variables set -s $RailwayService "OAUTH_ADMIN_SECRET=$secret" | Out-Null
+
+  # `railway variables set` reinicia o serviço. Aguarde para o backend ler o novo secret.
+  Start-Sleep -Seconds 15
+} else {
+  Write-Host "(usando AdminSecret fornecido; não alterando variáveis no Railway)"
+}
 
 Write-Host "2) Gerando URL de autorização Shopee..."
 $auth = Invoke-RestMethod -Method Get -Uri $authorizeEndpoint
@@ -72,12 +77,17 @@ $shopId = if ($tokens.shopId) { [string]$tokens.shopId } elseif ($resp.latest.sh
 # Importante: não setar variáveis ANTES do exchange, pois isso reinicia o serviço
 # e apaga o `code` armazenado em memória.
 if ($shopId) {
-  & railway variables set -s $RailwayService "SHOPEE_SHOP_ID=$shopId" | Out-Null
+  # Set em lote para reduzir restarts
+  & railway variables set -s $RailwayService \
+    "SHOPEE_SHOP_ID=$shopId" \
+    "SHOPEE_ACCESS_TOKEN=$($tokens.accessToken)" \
+    "SHOPEE_REFRESH_TOKEN=$($tokens.refreshToken)" | Out-Null
 } else {
   Write-Warning "Não foi possível determinar shop_id para salvar no Railway (callback/exchange não retornou)."
+  & railway variables set -s $RailwayService \
+    "SHOPEE_ACCESS_TOKEN=$($tokens.accessToken)" \
+    "SHOPEE_REFRESH_TOKEN=$($tokens.refreshToken)" | Out-Null
 }
-& railway variables set -s $RailwayService "SHOPEE_ACCESS_TOKEN=$($tokens.accessToken)" | Out-Null
-& railway variables set -s $RailwayService "SHOPEE_REFRESH_TOKEN=$($tokens.refreshToken)" | Out-Null
 
 Write-Host "OK: Tokens salvos no Railway (SHOPEE_ACCESS_TOKEN / SHOPEE_REFRESH_TOKEN)."
 Write-Host "shop_id=$shopId"

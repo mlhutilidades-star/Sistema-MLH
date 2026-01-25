@@ -26,24 +26,10 @@ type ShopeeApiEnvelope<T> = {
   response?: T;
 };
 
-function buildSignedUrl(path: string, opts?: { shopId?: number }): string {
-  const shopId = opts?.shopId;
-  const { sign, timestamp } = generateShopeeSignature({
-    partnerId: config.shopee.partnerId,
-    partnerKey: config.shopee.partnerKey,
-    shopId: typeof shopId === 'number' && Number.isFinite(shopId) ? shopId : undefined,
-    // A assinatura usa o path completo incluindo /api/v2.
-    path: `/api/v2${path}`,
-  });
-
-  const params = new URLSearchParams({
-    partner_id: String(config.shopee.partnerId),
-    timestamp: String(timestamp),
-    sign,
-    ...(typeof shopId === 'number' && Number.isFinite(shopId) ? { shop_id: String(shopId) } : {}),
-  });
-
-  return `${config.shopee.baseUrl}${path}?${params.toString()}`;
+function buildShopeeV2Url(path: string): string {
+  const base = config.shopee.baseUrl.replace(/\/$/, '');
+  const p = path.startsWith('/') ? path : `/${path}`;
+  return `${base}${p}`;
 }
 
 function unwrapResponse<T>(raw: unknown): T {
@@ -104,28 +90,34 @@ export async function exchangeCodeForTokens(input: {
     throw new Error('Credenciais Shopee ausentes (SHOPEE_PARTNER_ID/SHOPEE_PARTNER_KEY)');
   }
 
-  const primaryPath = '/auth/access_token/get';
-  const fallbackPath = '/auth/token/get';
+  // Doc oficial (v2.public.get_access_token): POST /api/v2/auth/token/get
+  // Assinatura: HMAC-SHA256(partner_id + api_path + timestamp, partner_key)
+  // Header: Authorization: <sign>
+  const apiPathForSign = '/api/v2/auth/token/get';
+  const urlPath = '/auth/token/get';
+  const url = buildShopeeV2Url(urlPath);
+  const { sign, timestamp } = generateShopeeSignature({
+    partnerId: config.shopee.partnerId,
+    partnerKey: config.shopee.partnerKey,
+    path: apiPathForSign,
+  });
 
   logger.info('Shopee OAuth exchange requested', {
     baseUrl: config.shopee.baseUrl,
-    endpoint: primaryPath,
+    endpoint: urlPath,
     codeLen: input.code?.length ?? 0,
     hasShopId: typeof input.shopId === 'number' && Number.isFinite(input.shopId),
     hasMainAccountId: typeof input.mainAccountId === 'number' && Number.isFinite(input.mainAccountId),
   });
 
   try {
-    const body: any = {
-      partner_id: config.shopee.partnerId,
+    const body: Record<string, any> = {
       code: input.code,
+      partner_id: config.shopee.partnerId,
+      timestamp,
     };
 
-    // Compat: alguns endpoints/variantes podem esperar nomes alternativos.
-    body.auth_code = input.code;
-
-    // Para algumas autorizações, a Shopee retorna `main_account_id`.
-    // Nesses casos, a troca do code deve usar `main_account_id` (e não `shop_id`).
+    // Campos condicionais conforme doc: shop_id OU main_account_id
     if (typeof input.mainAccountId === 'number' && Number.isFinite(input.mainAccountId)) {
       body.main_account_id = input.mainAccountId;
     } else {
@@ -133,47 +125,24 @@ export async function exchangeCodeForTokens(input: {
         throw new Error('shop_id ausente para troca de code');
       }
       body.shop_id = input.shopId;
-      body.shopid = input.shopId;
     }
 
-    const post = async (path: string): Promise<ShopeeTokenResponse> => {
-      const url = buildSignedUrl(path, {
-        shopId: typeof body.shop_id === 'number' && Number.isFinite(body.shop_id) ? body.shop_id : undefined,
-      });
-      const { data } = await axios.post<ShopeeApiEnvelope<ShopeeTokenResponse>>(
-        url,
-        body,
-        {
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          timeout: config.shopee.timeout,
-        }
-      );
-      return unwrapResponse(data);
-    };
+    const { data } = await axios.post<ShopeeApiEnvelope<ShopeeTokenResponse>>(url, body, {
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: sign,
+      },
+      timeout: config.shopee.timeout,
+    });
 
-    try {
-      return await post(primaryPath);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      // Alguns parceiros reportam que o endpoint correto pode variar.
-      // Se a Shopee reclamar de `refresh_token` numa troca de `code`, tente endpoint alternativo.
-      if (msg.includes('error_param') && msg.toLowerCase().includes('refresh_token')) {
-        logger.warn('Shopee OAuth exchange retrying with fallback endpoint', {
-          fallbackEndpoint: fallbackPath,
-        });
-        return await post(fallbackPath);
-      }
-      throw e;
-    }
+    return unwrapResponse(data);
   } catch (error) {
     if (axios.isAxiosError(error)) {
       const status = error.response?.status;
       const data = error.response?.data as any;
       logger.warn('Shopee OAuth exchange failed', {
         status,
-        endpoint: primaryPath,
+        endpoint: urlPath,
         responseError: data?.error,
         responseMessage: data?.message,
         requestId: data?.request_id,
@@ -191,23 +160,29 @@ export async function refreshAccessToken(input: {
     throw new Error('Credenciais Shopee ausentes (SHOPEE_PARTNER_ID/SHOPEE_PARTNER_KEY)');
   }
 
-  const url = buildSignedUrl('/auth/access_token/refresh', { shopId: input.shopId });
+  // Mantém compatibilidade com o endpoint atual do projeto, mas usando o padrão de assinatura/headers.
+  const apiPathForSign = '/api/v2/auth/access_token/refresh';
+  const urlPath = '/auth/access_token/refresh';
+  const url = buildShopeeV2Url(urlPath);
+  const { sign, timestamp } = generateShopeeSignature({
+    partnerId: config.shopee.partnerId,
+    partnerKey: config.shopee.partnerKey,
+    path: apiPathForSign,
+  });
 
   try {
-    const { data } = await axios.post<ShopeeApiEnvelope<ShopeeTokenResponse>>(
-      url,
-      {
-        partner_id: config.shopee.partnerId,
-        shop_id: input.shopId,
-        refresh_token: input.refreshToken,
+    const { data } = await axios.post<ShopeeApiEnvelope<ShopeeTokenResponse>>(url, {
+      partner_id: config.shopee.partnerId,
+      shop_id: input.shopId,
+      refresh_token: input.refreshToken,
+      timestamp,
+    }, {
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: sign,
       },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        timeout: config.shopee.timeout,
-      }
-    );
+      timeout: config.shopee.timeout,
+    });
 
     return unwrapResponse(data);
   } catch (error) {
