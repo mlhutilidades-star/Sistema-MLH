@@ -16,6 +16,7 @@ import shopeeRoutes from './modules/shopee/routes';
 import relatoriosRoutes from './modules/relatorios/routes';
 import mapeamentoRoutes from './modules/mapeamento/routes';
 import { mapeamentoUiHandler } from './modules/mapeamento/ui';
+import { produtosUploadUiHandler } from './modules/produtos/uploadUi';
 
 // Shared
 import { logger } from './shared/logger';
@@ -116,6 +117,9 @@ app.get('/', (_req: Request, res: Response) => {
 
 // UI simples para mapeamento SKU (usa API com x-admin-secret)
 app.get('/mapeamento', mapeamentoUiHandler);
+
+// UI simples para upload de planilha Tiny (custos)
+app.get('/produtos/upload', produtosUploadUiHandler);
 
 app.use('/api/produtos', produtosRoutes);
 app.use('/api/financeiro', financeiroRoutes);

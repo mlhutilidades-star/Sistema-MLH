@@ -129,6 +129,50 @@ Para aumentar a precisão do lucro (e evitar “lucro 100%” por custo zerado),
 - Cobertura de custos (percentual de produtos com custo definido):
   - `railway ssh -s api-backend node dist/scripts/costCoverage.js`
 
+## 📊 Importação de Produtos via Planilha (Tiny)
+
+Quando o Tiny estiver com custos inconsistentes via API (ou quando você preferir ajustar custos manualmente), você pode importar uma planilha do Tiny (Excel/CSV) para atualizar o `Produto.custoReal` automaticamente.
+
+### UI (recomendado)
+
+- Página: `/produtos/upload`
+- Requer `x-admin-secret` (mesmo `OAUTH_ADMIN_SECRET` do Railway)
+
+### Endpoints
+
+- Preview (não grava no banco):
+  - `POST /api/produtos/preview-planilha`
+  - `Content-Type: multipart/form-data`
+  - Body: `planilha: <arquivo .xlsx/.xls/.csv>`
+  - Header: `x-admin-secret: <OAUTH_ADMIN_SECRET>`
+
+- Upload + processamento (grava no banco):
+  - `POST /api/produtos/upload-planilha`
+  - `Content-Type: multipart/form-data`
+  - Body: `planilha: <arquivo .xlsx/.xls/.csv>`
+  - Header: `x-admin-secret: <OAUTH_ADMIN_SECRET>`
+
+### Colunas suportadas (mapeamento flexível)
+
+- SKU/Código: `SKU`, `Codigo`, `Código`, `CODIGO`
+- Descrição/Nome: `Descricao`, `Descrição`, `Nome`, `Produto`
+- Custo médio (prioridade): `Custo Medio`, `Custo Médio`, `Custo_Medio`
+- Preço custo (fallback): `Preco Custo`, `Preço Custo`, `Preco_Custo`
+- Estoque (opcional): `Estoque`, `QTD`, `Quantidade`
+
+### Regras
+
+- Prioridade de custo: `custo_medio` > `preco_custo`.
+- Custos `0` são ignorados (não sobrescreve custo bom por zero).
+- O upload marca o produto como `custoStatus=OK` e atualiza `custoAtualizadoEm`.
+
+### Teste local (opcional)
+
+- Parse/preview sem salvar:
+  - `cd backend && npx tsx scripts/testUpload.ts --file ./minha-planilha.xlsx`
+- Aplicar no banco (cuidado!):
+  - `cd backend && npx tsx scripts/testUpload.ts --file ./minha-planilha.xlsx --apply`
+
 ### Comandos
 
 - Calcular margem completa (produtos + pedidos) em produção:

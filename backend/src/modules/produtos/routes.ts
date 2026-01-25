@@ -4,9 +4,24 @@
 
 import { Router } from 'express';
 import { ProdutoController } from './controller';
+import { UploadService } from './uploadService';
 
 const router = Router();
 const controller = new ProdutoController();
+const uploadService = new UploadService();
+const upload = uploadService.upload;
+
+function requireAdmin(req: any): void {
+	const secret = process.env.OAUTH_ADMIN_SECRET;
+	if (!secret) {
+		throw new Error('OAUTH_ADMIN_SECRET não configurado');
+	}
+
+	const provided = req.header?.('x-admin-secret');
+	if (!provided || provided !== secret) {
+		throw new Error('Acesso negado');
+	}
+}
 
 /**
  * GET /produtos
@@ -16,11 +31,83 @@ const controller = new ProdutoController();
 router.get('/', controller.listar);
 
 /**
+ * POST /produtos/preview-planilha
+ * Preview de planilha (primeiras linhas válidas)
+ * multipart/form-data: planilha
+ * Header: x-admin-secret
+ */
+router.post(
+	'/preview-planilha',
+	upload.single('planilha'),
+	async (req, res, next) => {
+		try {
+			requireAdmin(req);
+
+			const file = (req as any).file as Express.Multer.File | undefined;
+			if (!file) {
+				return res.status(400).json({ success: false, error: 'Arquivo não enviado' });
+			}
+
+			const tipo = uploadService.detectTipo(file.mimetype, file.originalname);
+			const parsed = await uploadService.processarPlanilha(file.buffer, tipo);
+
+			return res.json({
+				success: true,
+				tipo,
+				totalLinhas: parsed.totalLinhas,
+				validos: parsed.validos.length,
+				rejeitados: parsed.rejeitados.length,
+				preview: parsed.validos.slice(0, 10),
+				amostraRejeitados: parsed.rejeitados.slice(0, 10),
+				colunas: ['sku', 'descricao', 'custoMedio', 'precoCusto', 'estoque'],
+			});
+		} catch (error) {
+			next(error);
+		}
+	},
+);
+
+/**
+ * POST /produtos/upload-planilha
+ * Processa a planilha e atualiza custos no banco
+ * multipart/form-data: planilha
+ * Header: x-admin-secret
+ */
+router.post(
+	'/upload-planilha',
+	upload.single('planilha'),
+	async (req, res, next) => {
+		try {
+			requireAdmin(req);
+
+			const file = (req as any).file as Express.Multer.File | undefined;
+			if (!file) {
+				return res.status(400).json({ success: false, error: 'Arquivo não enviado' });
+			}
+
+			const tipo = uploadService.detectTipo(file.mimetype, file.originalname);
+			const parsed = await uploadService.processarPlanilha(file.buffer, tipo);
+			const resultados = await uploadService.atualizarCustos(parsed.validos);
+
+			return res.json({
+				success: true,
+				tipo,
+				totalLinhas: parsed.totalLinhas,
+				validos: parsed.validos.length,
+				rejeitados: parsed.rejeitados.length,
+				resultados,
+				mensagem: 'Planilha processada com sucesso. Custos atualizados!',
+			});
+		} catch (error) {
+			next(error);
+		}
+	},
+);
+
+/**
  * GET /produtos/:id
  * Obter produto por ID
  */
-router.get('/:id', controller.obter);
-
 /**
  * GET /produtos/sku/:sku
  * Obter produto por SKU
@@ -46,5 +133,11 @@ router.post('/sync/shopee', controller.syncShopee);
  * Body: { custoReal: number }
  */
 router.patch('/:id/custo', controller.atualizarCusto);
+
+/**
+ * GET /produtos/:id
+ * Obter produto por ID
+ */
+router.get('/:id', controller.obter);
 
 export default router;
