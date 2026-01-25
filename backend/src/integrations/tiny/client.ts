@@ -173,11 +173,32 @@ export class TinyClient {
     return status === 'OK';
   }
 
+  private formatTinyDate(date: Date): string {
+    const dd = String(date.getDate()).padStart(2, '0');
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const yyyy = String(date.getFullYear());
+    return `${dd}/${mm}/${yyyy}`;
+  }
+
+  private resolveTinyDateRange(dataInicio?: string, dataFim?: string): { dataInicial: string; dataFinal: string } {
+    // Tiny API2 normalmente usa dd/mm/aaaa.
+    // Se não houver período explícito, usa últimos 30 dias.
+    const end = dataFim ? new Date(dataFim) : new Date();
+    const start = dataInicio ? new Date(dataInicio) : new Date(end.getTime());
+    if (!dataInicio) start.setDate(start.getDate() - 30);
+
+    return {
+      dataInicial: this.formatTinyDate(start),
+      dataFinal: this.formatTinyDate(end),
+    };
+  }
+
   private tinyStatusMessage(retorno: any): string {
     if (!retorno) return 'Erro desconhecido';
     const status = retorno.status;
     const msg = retorno?.mensagens?.[0]?.mensagem;
-    return msg || status || 'Erro desconhecido';
+    const err = retorno?.erros?.[0]?.erro;
+    return msg || err || status || 'Erro desconhecido';
   }
 
   /**
@@ -299,11 +320,13 @@ export class TinyClient {
    */
   async buscarContasPagar(dataInicio?: string, dataFim?: string, pagina: number = 1): Promise<TinyContaPagarResponse> {
     try {
+      const { dataInicial, dataFinal } = this.resolveTinyDateRange(dataInicio, dataFim);
+
       const response = await retryWithBackoff(
         async () => {
           return await this.getWithTinyAuth<TinyContaPagarResponse>('/contas.pagar.pesquisa', {
-            dataInicio,
-            dataFim,
+            dataInicial,
+            dataFinal,
             pagina,
             formato: 'json',
           });
@@ -326,11 +349,13 @@ export class TinyClient {
    */
   async buscarContasReceber(dataInicio?: string, dataFim?: string, pagina: number = 1): Promise<TinyContaReceberResponse> {
     try {
+      const { dataInicial, dataFinal } = this.resolveTinyDateRange(dataInicio, dataFim);
+
       const response = await retryWithBackoff(
         async () => {
           return await this.getWithTinyAuth<TinyContaReceberResponse>('/contas.receber.pesquisa', {
-            dataInicio,
-            dataFim,
+            dataInicial,
+            dataFinal,
             pagina,
             formato: 'json',
           });
