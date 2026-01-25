@@ -238,6 +238,8 @@ export class TinyClient {
     const raw = String(sku || '').trim();
     if (!raw) return [];
 
+    const normalized = raw.replace(/\s+/g, ' ').trim();
+
     const candidates: string[] = [];
     const add = (v: string | undefined | null) => {
       const s = String(v || '').trim();
@@ -245,24 +247,32 @@ export class TinyClient {
       if (!candidates.includes(s)) candidates.push(s);
     };
 
-    add(raw);
+    add(normalized);
 
     // Prefixo numérico (muito comum como código base do Tiny)
-    const mNum = raw.match(/^(\d{6,})/);
+    const mNum = normalized.match(/^(\d{6,})/);
     if (mNum?.[1]) add(mNum[1]);
 
+    // Se começar com número e tiver separador, tenta também o sufixo (texto/variação)
+    const mNumSep = normalized.match(/^(\d{6,})\s*[-_\/]\s*(.+)$/);
+    if (mNumSep?.[2]) add(mNumSep[2]);
+
     // Parte antes do primeiro espaço (remove descrições de variação)
-    if (raw.includes(' ')) add(raw.split(' ')[0]);
+    if (normalized.includes(' ')) add(normalized.split(' ')[0]);
 
     // Parte antes do primeiro '-' (remove sufixos de variação)
-    if (raw.includes('-')) add(raw.split('-')[0]);
+    if (normalized.includes('-')) add(normalized.split('-')[0]);
+
+    // Separadores comuns em variações
+    if (normalized.includes('_')) add(normalized.split('_')[0]);
+    if (normalized.includes('/')) add(normalized.split('/')[0]);
 
     // Se começar com número e tiver '-', pega só o número (reforça)
-    const mNumDash = raw.match(/^(\d{6,})-/);
+    const mNumDash = normalized.match(/^(\d{6,})-/);
     if (mNumDash?.[1]) add(mNumDash[1]);
 
     // Limitar para evitar explosão de chamadas
-    return candidates.slice(0, 4);
+    return candidates.slice(0, 6);
   }
 
   /**
