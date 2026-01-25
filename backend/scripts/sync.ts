@@ -34,7 +34,7 @@ function parseNumberEnv(name: string, fallback: number): number {
   return Number.isFinite(v) ? v : fallback;
 }
 
-async function syncProdutosCustoPorSkuShopee(): Promise<{ total: number; atualizados: number; custoEncontrado: number; custoAusente: number }> {
+async function syncProdutosCustoPorSkuShopee(): Promise<{ total: number; atualizados: number; custoEncontrado: number; custoAusente: number; erros: number }> {
   const prisma = getPrismaClient();
   const tiny = new TinyClient();
 
@@ -48,6 +48,7 @@ async function syncProdutosCustoPorSkuShopee(): Promise<{ total: number; atualiz
   let atualizados = 0;
   let custoEncontrado = 0;
   let custoAusente = 0;
+  let erros = 0;
 
   logger.info('🛒 Listando produtos ativos na Shopee (SKUs)...');
   const pages = await shopee.getAllItems();
@@ -65,41 +66,55 @@ async function syncProdutosCustoPorSkuShopee(): Promise<{ total: number; atualiz
 
       total++;
 
-      const precoVenda = item.price_info?.[0]?.current_price;
-      const estoqueShopee = item.stock_info?.[0]?.current_stock ?? 0;
+      try {
+        const precoVenda = item.price_info?.[0]?.current_price;
+        const estoqueShopee = item.stock_info?.[0]?.current_stock ?? 0;
 
-      const custo = await tiny.buscarCustoPorSKU(sku);
-      const custoReal = custo ?? 0;
-      if (custo == null) {
-        custoAusente++;
-        logger.warn(`⚠️  Custo Tiny não encontrado para SKU ${sku}. Salvando custoReal=0.`);
-      } else {
-        custoEncontrado++;
+        let custo: number | null = null;
+        try {
+          custo = await tiny.buscarCustoPorSKU(sku);
+        } catch (e: any) {
+          // Falha ao buscar custo no Tiny não deve derrubar o sync.
+          erros++;
+          logger.warn(`⚠️  Falha ao buscar custo Tiny para SKU ${sku}: ${String(e?.message || e)}`);
+          custo = null;
+        }
+
+        const custoReal = custo ?? 0;
+        if (custo == null) {
+          custoAusente++;
+          logger.warn(`⚠️  Custo Tiny não encontrado para SKU ${sku}. Salvando custoReal=0.`);
+        } else {
+          custoEncontrado++;
+        }
+
+        await prisma.produto.upsert({
+          where: { sku },
+          create: {
+            sku,
+            descricao: item.item_name,
+            custoReal,
+            precoVenda: typeof precoVenda === 'number' ? precoVenda : null,
+            idShopee: String(item.item_id),
+            estoqueShopee,
+            ativo: true,
+          },
+          update: {
+            descricao: item.item_name,
+            custoReal,
+            precoVenda: typeof precoVenda === 'number' ? precoVenda : null,
+            idShopee: String(item.item_id),
+            estoqueShopee,
+            ativo: true,
+            atualizadoEm: new Date(),
+          },
+        });
+
+        atualizados++;
+      } catch (e: any) {
+        erros++;
+        logger.error(`Erro ao processar SKU Shopee ${sku}`, { error: String(e?.message || e) });
       }
-
-      await prisma.produto.upsert({
-        where: { sku },
-        create: {
-          sku,
-          descricao: item.item_name,
-          custoReal,
-          precoVenda: typeof precoVenda === 'number' ? precoVenda : null,
-          idShopee: String(item.item_id),
-          estoqueShopee,
-          ativo: true,
-        },
-        update: {
-          descricao: item.item_name,
-          custoReal,
-          precoVenda: typeof precoVenda === 'number' ? precoVenda : null,
-          idShopee: String(item.item_id),
-          estoqueShopee,
-          ativo: true,
-          atualizadoEm: new Date(),
-        },
-      });
-
-      atualizados++;
     }
   }
 
@@ -115,7 +130,7 @@ async function syncProdutosCustoPorSkuShopee(): Promise<{ total: number; atualiz
     },
   });
 
-  return { total, atualizados, custoEncontrado, custoAusente };
+  return { total, atualizados, custoEncontrado, custoAusente, erros };
 }
 
 async function syncPedidosMargemShopee(): Promise<{ pedidos: number; itens: number; custosAusentes: number }> {
@@ -349,7 +364,7 @@ async function syncManual() {
     if (shouldRunShopee) {
       const resultado = await syncProdutosCustoPorSkuShopee();
       logger.info(
-        `✅ Produtos (SKU Shopee -> custo Tiny): ${resultado.total} SKUs; custo ok ${resultado.custoEncontrado}; custo ausente ${resultado.custoAusente}`
+        `✅ Produtos (SKU Shopee -> custo Tiny): ${resultado.total} SKUs; custo ok ${resultado.custoEncontrado}; custo ausente ${resultado.custoAusente}; erros ${resultado.erros}`
       );
 
       if (fullMarginCalc) {
@@ -373,7 +388,11 @@ async function syncManual() {
     await disconnectDatabase();
     process.exit(0);
   } catch (error) {
-    logger.error('❌ Erro na sincronização manual', { error });
+    const err = error as any;
+    logger.error('❌ Erro na sincronização manual', {
+      error: String(err?.message || err),
+      stack: err?.stack,
+    });
     process.exit(1);
   }
 }
