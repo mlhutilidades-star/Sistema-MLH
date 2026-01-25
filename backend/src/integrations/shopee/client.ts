@@ -290,23 +290,27 @@ export class ShopeeClient {
   async getOrderDetail(orderSnList: string[]): Promise<ShopeeOrderDetailResponse> {
     try {
       const path = '/order/get_order_detail';
-      const url = buildShopeeUrl(path, {}, this.accessToken);
+      const url = buildShopeeUrl(
+        path,
+        {
+          order_sn_list: orderSnList.join(','),
+          response_optional_fields: [
+            'buyer_user_id',
+            'buyer_username',
+            'estimated_shipping_fee',
+            'actual_shipping_fee',
+            'payment_method',
+            'total_amount',
+            'escrow_amount',
+            'item_list',
+          ].join(','),
+        },
+        this.accessToken
+      );
 
       const response = await retryWithBackoff(
         async () => {
-          const { data } = await this.client.post<ShopeeOrderDetailResponse>(url, {
-            order_sn_list: orderSnList,
-            response_optional_fields: [
-              'buyer_user_id',
-              'buyer_username',
-              'estimated_shipping_fee',
-              'actual_shipping_fee',
-              'payment_method',
-              'total_amount',
-              'escrow_amount',
-              'item_list',
-            ],
-          });
+          const { data } = await this.client.get<ShopeeOrderDetailResponse>(url);
           return this.validateResponse(data);
         },
         config.shopee.maxRetries
