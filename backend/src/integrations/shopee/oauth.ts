@@ -6,6 +6,7 @@
 
 import axios from 'axios';
 import { config } from '../../shared/config';
+import { logger } from '../../shared/logger';
 import { generateShopeeSignature } from './auth';
 
 export type ShopeeTokenResponse = {
@@ -45,7 +46,8 @@ function buildSignedUrl(path: string): string {
 function unwrapResponse<T>(data: ShopeeApiEnvelope<T>): T {
   if (!data) throw new Error('Resposta vazia da Shopee');
   if (data.error && data.error !== '') {
-    throw new Error(`Shopee OAuth Error: ${data.error} - ${data.message}`);
+    const requestId = data.request_id ? ` (request_id=${data.request_id})` : '';
+    throw new Error(`Shopee OAuth Error: ${data.error} - ${data.message}${requestId}`);
   }
   if (!data.response) {
     throw new Error('Resposta inválida da Shopee (sem response)');
@@ -75,6 +77,14 @@ export async function exchangeCodeForTokens(input: {
   }
 
   const url = buildSignedUrl('/auth/access_token/get');
+
+  logger.info('Shopee OAuth exchange requested', {
+    baseUrl: config.shopee.baseUrl,
+    endpoint: '/auth/access_token/get',
+    codeLen: input.code?.length ?? 0,
+    hasShopId: typeof input.shopId === 'number' && Number.isFinite(input.shopId),
+    hasMainAccountId: typeof input.mainAccountId === 'number' && Number.isFinite(input.mainAccountId),
+  });
 
   try {
     const body: any = {
@@ -106,6 +116,17 @@ export async function exchangeCodeForTokens(input: {
 
     return unwrapResponse(data);
   } catch (error) {
+    if (axios.isAxiosError(error)) {
+      const status = error.response?.status;
+      const data = error.response?.data as any;
+      logger.warn('Shopee OAuth exchange failed', {
+        status,
+        endpoint: '/auth/access_token/get',
+        responseError: data?.error,
+        responseMessage: data?.message,
+        requestId: data?.request_id,
+      });
+    }
     throw new Error(`Falha ao trocar code por tokens: ${extractAxiosErrorMessage(error)}`);
   }
 }
