@@ -101,18 +101,30 @@ export class UploadService {
   readonly upload = multer({
     storage: multer.memoryStorage(),
     fileFilter: (_req, file, cb) => {
-      const allowed = new Set([
+      const allowedMime = new Set([
         'application/vnd.ms-excel',
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'text/csv',
         'application/csv',
+        // Alguns browsers/antivírus/gateways enviam mimetype genérico.
+        'application/octet-stream',
       ]);
 
-      if (allowed.has(file.mimetype)) {
+      const name = String(file.originalname || '').toLowerCase();
+      const allowedExt = name.endsWith('.xlsx') || name.endsWith('.xls') || name.endsWith('.csv');
+
+      if (allowedMime.has(file.mimetype) && (allowedExt || file.mimetype !== 'application/octet-stream')) {
         cb(null, true);
-      } else {
-        cb(new Error('Apenas arquivos Excel (.xlsx, .xls) ou CSV'));
+        return;
       }
+
+      if (allowedExt) {
+        // Aceita pela extensão mesmo que o mimetype não seja reconhecido.
+        cb(null, true);
+        return;
+      }
+
+      cb(new Error('Apenas arquivos Excel (.xlsx, .xls) ou CSV'));
     },
     limits: { fileSize: 10 * 1024 * 1024 },
   });
