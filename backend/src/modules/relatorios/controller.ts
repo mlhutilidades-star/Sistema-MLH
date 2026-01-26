@@ -5,6 +5,19 @@ import type { Anuncio, Pedido } from '@prisma/client';
 export class RelatoriosController {
   private prisma = getPrismaClient();
 
+  private parseDateRangeOrThrow(dataInicioStr: string, dataFimStr: string): { inicio: Date; fim: Date } {
+    const isDateOnly = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s);
+
+    const inicio = isDateOnly(dataInicioStr) ? new Date(`${dataInicioStr}T00:00:00.000Z`) : new Date(dataInicioStr);
+    const fim = isDateOnly(dataFimStr) ? new Date(`${dataFimStr}T23:59:59.999Z`) : new Date(dataFimStr);
+
+    if (!Number.isFinite(inicio.getTime()) || !Number.isFinite(fim.getTime())) {
+      throw new Error('dataInicio/dataFim inválidos. Use YYYY-MM-DD ou ISO.');
+    }
+
+    return { inicio, fim };
+  }
+
   lucroTotal = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const dataInicioRaw = req.query.dataInicio;
@@ -19,12 +32,14 @@ export class RelatoriosController {
         });
       }
 
-      const inicio = new Date(dataInicioStr);
-      const fim = new Date(dataFimStr);
-      if (!Number.isFinite(inicio.getTime()) || !Number.isFinite(fim.getTime())) {
+      let inicio: Date;
+      let fim: Date;
+      try {
+        ({ inicio, fim } = this.parseDateRangeOrThrow(dataInicioStr, dataFimStr));
+      } catch (e) {
         return res.status(400).json({
           success: false,
-          error: 'dataInicio/dataFim inválidos. Use YYYY-MM-DD ou ISO.',
+          error: e instanceof Error ? e.message : 'dataInicio/dataFim inválidos.',
         });
       }
 
@@ -75,8 +90,19 @@ export class RelatoriosController {
 
       const dataInicioRaw = req.query.dataInicio;
       const dataFimRaw = req.query.dataFim;
-      const dataInicio = typeof dataInicioRaw === 'string' && dataInicioRaw ? new Date(dataInicioRaw) : null;
-      const dataFim = typeof dataFimRaw === 'string' && dataFimRaw ? new Date(dataFimRaw) : null;
+      let dataInicio: Date | null = null;
+      let dataFim: Date | null = null;
+      if (typeof dataInicioRaw === 'string' && dataInicioRaw && typeof dataFimRaw === 'string' && dataFimRaw) {
+        try {
+          ({ inicio: dataInicio, fim: dataFim } = this.parseDateRangeOrThrow(dataInicioRaw, dataFimRaw));
+        } catch {
+          dataInicio = null;
+          dataFim = null;
+        }
+      } else {
+        dataInicio = typeof dataInicioRaw === 'string' && dataInicioRaw ? new Date(dataInicioRaw) : null;
+        dataFim = typeof dataFimRaw === 'string' && dataFimRaw ? new Date(dataFimRaw) : null;
+      }
 
       const where: any = {};
       if (dataInicio || dataFim) {
