@@ -52,7 +52,7 @@ export function produtosUploadUiHandler(_req: Request, res: Response) {
   secretEl.addEventListener('change', () => localStorage.setItem('mlh_admin_secret', secretEl.value));
 
   function escapeHtml(s) {
-    return String(s).replace(/[&<>\"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;','\'':'&#39;'}[c]));
+    return String(s).replace(/[&<>\"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
 
   async function postFile(path) {
@@ -68,9 +68,16 @@ export function produtosUploadUiHandler(_req: Request, res: Response) {
       body: form,
     });
 
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data?.error || data?.message || res.statusText);
-    return data;
+    const contentType = res.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || data?.message || res.statusText);
+      return data;
+    }
+
+    const text = await res.text().catch(() => '');
+    if (!res.ok) throw new Error(res.status + ' ' + res.statusText + (text ? ' - ' + text.slice(0, 200) : ''));
+    return { success: true, raw: text };
   }
 
   function renderPreview(data) {
@@ -120,6 +127,10 @@ export function produtosUploadUiHandler(_req: Request, res: Response) {
       outEl.innerHTML = '';
       alert(e.message || String(e));
     }
+  });
+
+  window.addEventListener('error', (ev) => {
+    statusEl.textContent = 'Erro na página: ' + (ev.message || 'ver console');
   });
 </script>
 </body>
