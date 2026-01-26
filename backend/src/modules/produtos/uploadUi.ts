@@ -2,6 +2,12 @@ import { Request, Response } from 'express';
 
 export function produtosUploadUiHandler(_req: Request, res: Response) {
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  // Helmet envia CSP padrão com `script-src 'self'`, que bloqueia scripts inline.
+  // Esta UI é interna (admin) e usa inline script por simplicidade.
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; img-src 'self' data:; object-src 'none'; style-src 'self' https: 'unsafe-inline'; script-src 'self' 'unsafe-inline'",
+  );
   res.send(`<!doctype html>
 <html lang="pt-BR">
 <head>
