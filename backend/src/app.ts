@@ -17,6 +17,7 @@ import relatoriosRoutes from './modules/relatorios/routes';
 import mapeamentoRoutes from './modules/mapeamento/routes';
 import { mapeamentoUiHandler } from './modules/mapeamento/ui';
 import { produtosUploadUiHandler } from './modules/produtos/uploadUi';
+import { dashboardUiHandler } from './modules/dashboard/ui';
 
 // Shared
 import { logger } from './shared/logger';
@@ -120,6 +121,9 @@ app.get('/mapeamento', mapeamentoUiHandler);
 
 // UI simples para upload de planilha Tiny (custos)
 app.get('/produtos/upload', produtosUploadUiHandler);
+
+// Dashboard (saúde do negócio)
+app.get('/dashboard', dashboardUiHandler);
 
 app.use('/api/produtos', produtosRoutes);
 app.use('/api/financeiro', financeiroRoutes);

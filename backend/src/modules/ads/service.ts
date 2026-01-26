@@ -152,6 +152,17 @@ export class AdsService {
       orderBy: { data: 'asc' },
     });
 
+    const pedidos = await this.prisma.pedido.findMany({
+      where: {
+        data: { gte: dataInicio, lte: dataFim },
+      },
+      select: {
+        rendaLiquida: true,
+        custoProdutos: true,
+        lucro: true,
+      },
+    });
+
     const totais = ads.reduce(
       (acc, ad) => ({
         impressoes: acc.impressoes + ad.impressoes,
@@ -163,9 +174,21 @@ export class AdsService {
       { impressoes: 0, cliques: 0, gasto: 0, pedidos: 0, gmv: 0 }
     );
 
+    const totaisPedidos = pedidos.reduce(
+      (acc, p) => ({
+        rendaLiquida: acc.rendaLiquida + (Number(p.rendaLiquida) || 0),
+        custoProdutos: acc.custoProdutos + (Number(p.custoProdutos) || 0),
+        lucro: acc.lucro + (Number(p.lucro) || 0),
+      }),
+      { rendaLiquida: 0, custoProdutos: 0, lucro: 0 }
+    );
+
     const ctrMedio = totais.impressoes > 0 ? (totais.cliques / totais.impressoes) * 100 : 0;
     const cpcMedio = totais.cliques > 0 ? totais.gasto / totais.cliques : 0;
     const roasTotal = totais.gasto > 0 ? totais.gmv / totais.gasto : 0;
+
+    const ganhoRealFinal = totaisPedidos.lucro - totais.gasto;
+    const roiRealFinal = totais.gasto > 0 ? (ganhoRealFinal / totais.gasto) * 100 : 0;
 
     return {
       periodo: { inicio: dataInicio, fim: dataFim },
@@ -175,6 +198,13 @@ export class AdsService {
         cpcMedio,
         roasTotal,
       },
+      pedidosNoPeriodo: {
+        rendaLiquida: totaisPedidos.rendaLiquida,
+        custoProdutos: totaisPedidos.custoProdutos,
+        lucro: totaisPedidos.lucro,
+      },
+      ganhoRealFinal,
+      roiRealFinal,
       detalhes: ads,
     };
   }
