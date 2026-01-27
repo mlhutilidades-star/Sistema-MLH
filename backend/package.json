@@ -14,6 +14,7 @@
     "sync": "tsx scripts/sync.ts",
     "recalc:lucro": "tsx scripts/recalculateProfit.ts",
     "verify:health": "tsx scripts/verifyHealth.ts",
+    "report:weekly": "tsx scripts/weeklyReport.ts",
     "railway:deploy": "railway up"
   },
   "keywords": [
@@ -36,7 +37,9 @@
     "joi": "^17.11.0",
     "jsonwebtoken": "^9.0.0",
     "multer": "^2.0.2",
+    "nodemailer": "^6.10.0",
     "node-cron": "^3.0.0",
+    "pdfkit": "^0.17.1",
     "prisma": "^5.7.0",
     "winston": "^3.11.0",
     "xlsx": "^0.18.5",
@@ -49,6 +52,8 @@
     "@types/multer": "^1.4.13",
     "@types/node": "^20.10.0",
     "@types/node-cron": "^3.0.11",
+    "@types/nodemailer": "^6.4.17",
+    "@types/pdfkit": "^0.13.9",
     "tsx": "^4.6.0",
     "typescript": "^5.3.0"
   },

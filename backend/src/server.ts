@@ -9,6 +9,8 @@ import { connectDatabase, disconnectDatabase } from './shared/database';
 import cron from 'node-cron';
 import { ProdutoService } from './modules/produtos/service';
 import { FinanceiroService } from './modules/financeiro/service';
+import { startAlertasScheduler } from './modules/alertas/scheduler';
+import { spawn } from 'node:child_process';
 
 // Validar configurações
 try {
@@ -65,6 +67,65 @@ connectDatabase()
           }
         });
       }
+    }
+
+    // Alertas automáticos (Slack/email)
+    startAlertasScheduler();
+
+    // Automação semanal: recálculo e relatório
+    const weeklyEnabled = String(process.env.WEEKLY_AUTOMATION_ENABLED || '').trim().toLowerCase() === 'true';
+    if (weeklyEnabled) {
+      const recalcCron = String(process.env.RECALC_WEEKLY_CRON || '30 2 * * 0').trim(); // domingo 02:30
+      const reportCron = String(process.env.REPORT_WEEKLY_CRON || '0 8 * * 1').trim(); // segunda 08:00
+
+      logger.info(`Weekly automation: habilitada (recalc=${recalcCron}, report=${reportCron})`);
+
+      cron.schedule(recalcCron, async () => {
+        try {
+          logger.info('Weekly recalc: iniciando (script)');
+
+          const lookbackDaysRaw = Number(process.env.RECALC_LOOKBACK_DAYS || 45);
+          const lookbackDays = Number.isFinite(lookbackDaysRaw) ? Math.max(7, Math.min(365, Math.floor(lookbackDaysRaw))) : 45;
+
+          const to = new Date();
+          const from = new Date(Date.now() - lookbackDays * 86400 * 1000);
+          const fromStr = from.toISOString().slice(0, 10);
+          const toStr = to.toISOString().slice(0, 10);
+
+          const includeAnuncios = String(process.env.RECALC_INCLUDE_ANUNCIOS || 'true').trim().toLowerCase() !== 'false';
+          const cmd = 'node';
+          const args = [
+            'dist/scripts/recalculateProfit.js',
+            `--from=${fromStr}`,
+            `--to=${toStr}`,
+            ...(includeAnuncios ? [] : ['--no-anuncios']),
+          ];
+
+          const child = spawn(cmd, args, { stdio: 'inherit', env: process.env, cwd: process.cwd() });
+          child.on('exit', (code) => {
+            logger.info('Weekly recalc: finalizado', { code });
+          });
+        } catch (e) {
+          logger.error('Weekly recalc: erro', { error: e });
+        }
+      });
+
+      cron.schedule(reportCron, async () => {
+        try {
+          logger.info('Weekly report: gerando PDF (script)');
+          const cmd = 'node';
+          const args = ['dist/scripts/weeklyReport.js'];
+
+          const child = spawn(cmd, args, { stdio: 'inherit', env: process.env, cwd: process.cwd() });
+          child.on('exit', (code) => {
+            logger.info('Weekly report: finalizado', { code });
+          });
+        } catch (e) {
+          logger.error('Weekly report: erro', { error: e });
+        }
+      });
+    } else {
+      logger.info('Weekly automation: desabilitada (WEEKLY_AUTOMATION_ENABLED!=true)');
     }
 
     // Graceful shutdown
