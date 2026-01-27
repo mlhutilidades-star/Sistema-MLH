@@ -19,6 +19,7 @@ import { mapeamentoUiHandler } from './modules/mapeamento/ui';
 import { produtosUploadUiHandler } from './modules/produtos/uploadUi';
 import { dashboardUiHandler } from './modules/dashboard/ui';
 import otimizacaoRoutes from './modules/otimizacao/routes';
+import pedidosRoutes from './modules/pedidos/routes';
 
 // Shared
 import { logger } from './shared/logger';
@@ -134,6 +135,7 @@ app.use('/api/shopee', shopeeRoutes);
 app.use('/api/relatorios', relatoriosRoutes);
 app.use('/api/mapeamento', mapeamentoRoutes);
 app.use('/api/otimizacao', otimizacaoRoutes);
+app.use('/api/pedidos', pedidosRoutes);
 
 // ==========================================
 // ERROR HANDLING
