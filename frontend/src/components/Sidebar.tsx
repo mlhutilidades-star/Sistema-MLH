@@ -29,6 +29,7 @@ export function Sidebar() {
         <LinkItem to="/pedidos" label="Pedidos" />
         <LinkItem to="/produtos" label="Produtos" />
         <LinkItem to="/anuncios" label="Anúncios" />
+        <LinkItem to="/otimizacao" label="Otimização" />
         <div className="mt-2 border-t border-slate-200 pt-2" />
         <LinkItem to="/config" label="Config" />
       </nav>

@@ -278,4 +278,14 @@ export class ProdutoService {
       data: { custoReal, atualizadoEm: new Date() },
     });
   }
+
+  /**
+   * Atualizar preço de venda (Tiny) de um produto
+   */
+  async atualizarPrecoVenda(id: string, precoVenda: number) {
+    return this.prisma.produto.update({
+      where: { id },
+      data: { precoVenda, atualizadoEm: new Date() },
+    });
+  }
 }

@@ -1,0 +1,13 @@
+[phases.setup]
+# Pin Node to avoid Nixpacks picking Node 22.11 (Vite requires >=22.12 for Node 22).
+# Node 20.19+ fully satisfies Vite's engine requirements.
+nixPkgs = ["nodejs_20", "npm-9_x"]
+
+[phases.install]
+cmds = ["npm ci"]
+
+[phases.build]
+cmds = ["npm run build"]
+
+[start]
+cmd = "npm run start"

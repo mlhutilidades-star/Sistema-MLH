@@ -42,6 +42,42 @@ railway up
 **Detalhes:** Ver [GUIA_RAPIDO.md](GUIA_RAPIDO.md)
 
 ---
+
+## 🖥️ Frontend (React)
+
+O projeto inclui um frontend moderno em React em `frontend/`.
+
+### Rodar local
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+### Variáveis (frontend)
+
+- `VITE_API_BASE_URL` (obrigatório em produção): URL do backend (ex.: Railway)
+- `VITE_GA_MEASUREMENT_ID` (opcional): GA4 (ex.: `G-XXXXXXXXXX`)
+
+### Healthcheck
+
+- O frontend expõe `GET /health` (usado pelo Railway).
+
+### Otimização de preços
+
+- Tela em `/otimizacao` consome `GET /api/otimizacao/precos`.
+- Botão “Aplicar Ajuste” chama `PATCH /api/produtos/:id/preco-venda` e requer `x-admin-secret` (definido na tela Config).
+
+---
+
+## 🔁 CI/CD (GitHub Actions)
+
+- CI: [ci.yml](.github/workflows/ci.yml)
+- Deploy opcional via Railway CLI: [deploy-railway.yml](.github/workflows/deploy-railway.yml)
+- Para habilitar deploy automático, crie os secrets no GitHub: `RAILWAY_API_TOKEN` e `RAILWAY_PROJECT_ID` (e opcionalmente `RAILWAY_SERVICE_BACKEND`, `RAILWAY_SERVICE_FRONTEND`, `RAILWAY_ENVIRONMENT`).
+
+---
 # 🚀 Sistema MLH - Integração Tiny ERP v3 + Shopee Open API v2
 
 Sistema completo de sincronização e gestão integrada entre **Tiny ERP v3** e **Shopee Open API v2** com PostgreSQL hospedado no **Railway**.

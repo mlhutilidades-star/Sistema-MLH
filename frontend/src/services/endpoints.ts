@@ -163,6 +163,65 @@ export async function uploadPlanilha(file: File) {
   return res.data;
 }
 
+export type OtimizacaoRow = {
+  sku: string;
+  vendas: {
+    quantidade: number;
+    rendaLiquida: number;
+    custoProdutos: number;
+    lucro: number;
+    margemAtualPct: number;
+  };
+  precos: {
+    precoMedioVenda: number | null;
+    receitaLiquidaUnit: number | null;
+    custoUnitario: number | null;
+    ratioLiquidoPorBruto: number | null;
+  };
+  meta: { margemPct: number };
+  sugestao: {
+    precoSugerido: number | null;
+    deltaPct: number | null;
+    impactoEsperado: string | null;
+  };
+  competencia: { status: string; motivo?: string };
+  elasticidade:
+    | {
+        estimativa: number;
+        r2: number;
+        n: number;
+        interpretacao: string;
+      }
+    | { status: string; motivo?: string };
+};
+
+export type OtimizacaoPrecosResponse = {
+  success: true;
+  periodo: { inicio: string; fim: string };
+  metaMargemPct: number;
+  totalSkus: number;
+  data: OtimizacaoRow[];
+  observacoes?: string[];
+};
+
+export async function getOtimizacaoPrecos(params: {
+  dataInicio: string;
+  dataFim: string;
+  metaMargemPct?: number;
+  limit?: number;
+}) {
+  const res = await api.get<OtimizacaoPrecosResponse>('/api/otimizacao/precos', { params });
+  return res.data;
+}
+
+export async function patchProdutoPreco(id: string, precoVenda: number) {
+  const res = await api.patch<{ success: true; data: Produto }>(
+    `/api/produtos/${encodeURIComponent(id)}/preco-venda`,
+    { precoVenda },
+  );
+  return res.data.data;
+}
+
 export async function listPedidos(params: { dataInicio: string; dataFim: string; limit?: number }) {
   try {
     const res = await api.get<PedidosListResponse>('/api/pedidos', { params });

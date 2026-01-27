@@ -81,18 +81,19 @@ app.get('/health', async (_req: Request, res: Response) => {
   try {
     const dbHealthy = await checkDatabaseHealth();
 
-    const health = {
-      status: dbHealthy ? 'healthy' : 'unhealthy',
-      timestamp: new Date().toISOString(),
+    const now = new Date().toISOString();
+
+    res.status(dbHealthy ? 200 : 503).json({
+      status: dbHealthy ? 'ok' : 'unhealthy',
+      timestamp: now,
       uptime: process.uptime(),
       database: dbHealthy ? 'connected' : 'disconnected',
       memory: process.memoryUsage(),
-    };
-
-    res.status(dbHealthy ? 200 : 503).json(health);
+    });
   } catch (error) {
     res.status(503).json({
       status: 'unhealthy',
+      timestamp: new Date().toISOString(),
       error: (error as Error).message,
     });
   }

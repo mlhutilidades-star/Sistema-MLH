@@ -176,4 +176,29 @@ export class ProdutoController {
       next(error);
     }
   };
+
+  /**
+   * Atualizar preço de venda
+   */
+  atualizarPrecoVenda = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { id } = req.params;
+      const { precoVenda } = req.body;
+
+      if (precoVenda === undefined || precoVenda === null) {
+        return res.status(400).json({ success: false, error: 'precoVenda é obrigatório' });
+      }
+
+      const preco = Number(precoVenda);
+      if (!Number.isFinite(preco) || preco <= 0) {
+        return res.status(400).json({ success: false, error: 'precoVenda deve ser um número positivo' });
+      }
+
+      const produto = await this.service.atualizarPrecoVenda(id, preco);
+      return res.json({ success: true, message: 'Preço atualizado', data: produto });
+    } catch (error) {
+      logger.error('Erro ao atualizar preço', { error });
+      next(error);
+    }
+  };
 }

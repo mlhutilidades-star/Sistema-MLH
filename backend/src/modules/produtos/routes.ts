@@ -135,6 +135,21 @@ router.post('/sync/shopee', controller.syncShopee);
 router.patch('/:id/custo', controller.atualizarCusto);
 
 /**
+ * PATCH /produtos/:id/preco-venda
+ * Atualizar precoVenda de um produto
+ * Body: { precoVenda: number }
+ * Header: x-admin-secret
+ */
+router.patch('/:id/preco-venda', async (req, res, next) => {
+	try {
+		requireAdmin(req);
+		return controller.atualizarPrecoVenda(req as any, res as any, next as any);
+	} catch (error) {
+		next(error);
+	}
+});
+
+/**
  * GET /produtos/:id
  * Obter produto por ID
  */
