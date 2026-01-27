@@ -1,6 +1,6 @@
 # 🚀 Sistema MLH - Integração Tiny ERP v3 + Shopee Open API v2
 
-> **Status:** ✅ Setup Automático Completo - Pronto para Deploy  
+> **Status:** ✅ SISTEMA OPERACIONAL (produção)  
 > **Versão:** 1.0.0  
 > **Data:** 2024-01-15
 
@@ -47,6 +47,36 @@ railway up
 
 - 🌐 URL Frontend: https://sistema-mlh-frontend-production.up.railway.app
 - ⚙️ URL Backend: https://api-backend-production-af22.up.railway.app
+
+### 🟢 Status operacional
+
+- Healthcheck Backend: OK
+- Healthcheck Frontend: OK
+- Alertas/Relatórios: habilitados (env vars), aguardando credenciais reais de Slack/Email
+
+### ⏱️ Guia de primeiros passos (5 minutos)
+
+1. Acesse https://sistema-mlh-frontend-production.up.railway.app/config
+2. Cole o `OAUTH_ADMIN_SECRET` e salve.
+3. Vá em **Pedidos** e valide um SKU.
+4. Abra **Otimização** e gere sugestões.
+5. (Opcional) Ajuste preço via botão **Aplicar Ajuste**.
+
+### ❓ FAQ rápido
+
+- **Não consigo aplicar ajuste de preço**: confirme `OAUTH_ADMIN_SECRET` na tela Config.
+- **Relatório semanal não apareceu**: verifique `WEEKLY_AUTOMATION_ENABLED=true` e o cron no backend.
+- **Alertas não chegam no Slack**: configure `ALERTS_SLACK_WEBHOOK_URL` no Railway.
+
+### 🧑‍💼 Contatos de suporte
+
+- Suporte MLH: (preencher)
+- Operações/DevOps: (preencher)
+
+### 🧭 Como usar (com screenshots)
+
+> Adicione imagens em `docs/screenshots/` e referencie aqui.
+> Exemplo: `docs/screenshots/config.png`, `docs/screenshots/pedidos.png`, `docs/screenshots/otimizacao.png`.
 
 ### 🔑 Guia rápido — Admin Secret na UI
 
