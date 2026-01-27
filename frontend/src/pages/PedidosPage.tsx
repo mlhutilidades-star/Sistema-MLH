@@ -94,6 +94,9 @@ export function PedidosPage() {
         accessorFn: (row) => row.itens,
         cell: (ctx) => {
           const itens = ctx.getValue() as Pedido['itens'];
+          if (!itens || itens.length === 0) {
+            return <span className="text-xs text-slate-500">(sem itens)</span>;
+          }
           const skus = itens.map((i) => i.sku);
           return (
             <div className="flex flex-wrap gap-1">
@@ -118,11 +121,12 @@ export function PedidosPage() {
         cell: (ctx) => {
           const value = Number(ctx.getValue());
           const pedido = ctx.row.original;
+          const canEdit = pedido.itens && pedido.itens.length > 0;
           return (
             <button
-              className="rounded-lg px-2 py-1 text-left font-medium hover:bg-slate-100"
-              onClick={() => void openEdit(pedido)}
-              title="Editar custos dos SKUs deste pedido"
+              className={`rounded-lg px-2 py-1 text-left font-medium ${canEdit ? 'hover:bg-slate-100' : 'cursor-not-allowed opacity-60'}`}
+              onClick={() => canEdit && void openEdit(pedido)}
+              title={canEdit ? 'Editar custos dos SKUs deste pedido' : 'Itens indisponíveis (aguarde deploy do backend /api/pedidos)'}
             >
               {formatBRL(value)}
             </button>
@@ -157,6 +161,10 @@ export function PedidosPage() {
 
   async function openEdit(pedido: Pedido) {
     try {
+      if (!pedido.itens || pedido.itens.length === 0) {
+        toast('Esse pedido não tem itens no backend atual.');
+        return;
+      }
       setEditPedidoId(pedido.pedidoId);
       setEditOpen(true);
       setEditRows([]);

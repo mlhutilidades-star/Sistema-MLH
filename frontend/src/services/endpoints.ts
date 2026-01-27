@@ -98,6 +98,21 @@ export type PedidosListResponse = {
   total: number;
 };
 
+type LucroPedidosLegacyResponse = {
+  totalRenda: number;
+  totalCusto: number;
+  totalLucro: number;
+  pedidos: Array<{
+    id: string;
+    data: string;
+    cliente: string | null;
+    renda: number;
+    custo: number;
+    lucro: number;
+    margem: number;
+  }>;
+};
+
 export async function getLucroTotal(params: { dataInicio: string; dataFim: string }) {
   const res = await api.get<{ success: true } & LucroTotalResponse>('/api/relatorios/lucro-total', { params });
   return res.data;
@@ -149,6 +164,35 @@ export async function uploadPlanilha(file: File) {
 }
 
 export async function listPedidos(params: { dataInicio: string; dataFim: string; limit?: number }) {
-  const res = await api.get<PedidosListResponse>('/api/pedidos', { params });
-  return res.data;
+  try {
+    const res = await api.get<PedidosListResponse>('/api/pedidos', { params });
+    return res.data;
+  } catch (e) {
+    // Fallback para backends antigos (antes de /api/pedidos existir)
+    const status = (e as any)?.cause?.response?.status;
+    if (status !== 404) throw e;
+
+    const legacy = await api.get<LucroPedidosLegacyResponse>('/api/relatorios/lucro-pedidos');
+    const inicio = new Date(`${params.dataInicio}T00:00:00.000Z`).getTime();
+    const fim = new Date(`${params.dataFim}T23:59:59.999Z`).getTime();
+
+    const pedidos = legacy.data.pedidos
+      .filter((p) => {
+        const t = new Date(p.data).getTime();
+        return Number.isFinite(t) && t >= inicio && t <= fim;
+      })
+      .slice(0, params.limit ?? 200)
+      .map((p) => ({
+        pedidoId: p.id,
+        data: p.data,
+        cliente: p.cliente,
+        rendaLiquida: Number(p.renda || 0),
+        custoProdutos: Number(p.custo || 0),
+        lucro: Number(p.lucro || 0),
+        margem: Number(p.margem || 0),
+        itens: [],
+      } satisfies Pedido));
+
+    return { success: true, total: pedidos.length, data: pedidos };
+  }
 }
