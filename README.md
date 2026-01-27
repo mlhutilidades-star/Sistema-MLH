@@ -43,6 +43,23 @@ railway up
 
 ---
 
+## ✅ Produção (Railway)
+
+- 🌐 URL Frontend: https://sistema-mlh-frontend-production.up.railway.app
+- ⚙️ URL Backend: https://api-backend-production-af22.up.railway.app
+
+### 🔑 Guia rápido — Admin Secret na UI
+
+1. Acesse https://sistema-mlh-frontend-production.up.railway.app/config
+2. Cole o valor de `OAUTH_ADMIN_SECRET`.
+3. Salve/valide. A UI passa a liberar ações administrativas (ex.: aplicar ajustes de preço).
+
+### 📊 Guia de Relatórios — PDF semanal
+
+- O relatório semanal é gerado automaticamente quando `WEEKLY_AUTOMATION_ENABLED=true`.
+- O backend salva o PDF em `reports/` e registra o caminho no log (ex.: `reports/relatorio-semanal-AAAA-MM-DD.pdf`).
+- Para visualizar, use o Railway SSH e copie o arquivo gerado (ou baixe via shell).
+
 ## 🖥️ Frontend (React)
 
 O projeto inclui um frontend moderno em React em `frontend/`.
