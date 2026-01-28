@@ -3,20 +3,17 @@ import toast from 'react-hot-toast';
 import { Badge } from '../components/Badge';
 import { FileDropzone } from '../components/FileDropzone';
 import { fmtDateBR } from '../utils/dates';
-import { formatBRL, formatPct } from '../utils/format';
+import { formatBRL } from '../utils/format';
 import { listProdutos, patchProdutoCusto, previewPlanilha, uploadPlanilha, type Produto } from '../services/endpoints';
 
-function marginFromPreco(precoVenda: number | null, custo: number): number | null {
-  const pv = Number(precoVenda || 0);
-  if (!pv || pv <= 0) return null;
-  return ((pv - custo) / pv) * 100;
-}
+function statusFromCusto(p: Produto): { label: string; tone: 'green' | 'yellow' | 'red' | 'slate' } {
+  const custo = Number(p.custoReal) || 0;
+  if (!custo || custo <= 0) return { label: 'SEM CUSTO', tone: 'red' };
 
-function statusFromMargin(m: number | null): { label: string; tone: 'green' | 'yellow' | 'red' | 'slate' } {
-  if (m === null) return { label: 'SEM PREÇO', tone: 'slate' };
-  if (m > 25) return { label: 'SAUDÁVEL', tone: 'green' };
-  if (m >= 15) return { label: 'MÉDIO', tone: 'yellow' };
-  return { label: 'CRÍTICO', tone: 'red' };
+  const raw = String(p.custoStatus || '').toUpperCase();
+  if (raw.includes('PEND')) return { label: 'PENDENTE', tone: 'yellow' };
+  if (raw.includes('OK')) return { label: 'OK', tone: 'green' };
+  return { label: raw || 'OK', tone: 'slate' };
 }
 
 export function ProdutosPage() {
@@ -52,9 +49,8 @@ export function ProdutosPage() {
   const rows = useMemo(() => {
     return produtos.map((p) => {
       const custo = Number(p.custoReal) || 0;
-      const margem = marginFromPreco(p.precoVenda, custo);
-      const status = statusFromMargin(margem);
-      return { p, custo, margem, status };
+      const status = statusFromCusto(p);
+      return { p, custo, status };
     });
   }, [produtos]);
 
@@ -134,28 +130,26 @@ export function ProdutosPage() {
               <tr>
                 <th className="px-4 py-3">SKU</th>
                 <th className="px-4 py-3">Descrição</th>
-                <th className="px-4 py-3">Custo atual</th>
-                <th className="px-4 py-3">Preço venda</th>
-                <th className="px-4 py-3">Margem</th>
-                <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">Preço de custo</th>
+                <th className="px-4 py-3">Status do custo</th>
                 <th className="px-4 py-3">Atualizado</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
                     Carregando…
                   </td>
                 </tr>
               ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
                     Sem produtos.
                   </td>
                 </tr>
               ) : (
-                rows.map(({ p, custo, margem, status }) => (
+                rows.map(({ p, custo, status }) => (
                   <tr key={p.id} className="border-t border-slate-100">
                     <td className="px-4 py-3 font-mono text-xs">{p.sku}</td>
                     <td className="px-4 py-3 text-slate-700">{p.descricao}</td>
@@ -180,17 +174,19 @@ export function ProdutosPage() {
                           </button>
                         </div>
                       ) : (
-                        <button className="rounded-lg px-2 py-1 font-medium hover:bg-slate-100" onClick={() => void startEdit(p)} title="Clique para editar">
+                        <button
+                          className="rounded-lg bg-amber-50 px-2 py-1 font-semibold text-slate-900 ring-1 ring-amber-200 hover:bg-amber-100"
+                          onClick={() => void startEdit(p)}
+                          title="Clique para editar o preço de custo"
+                        >
                           {formatBRL(custo)}
                         </button>
                       )}
                     </td>
-                    <td className="px-4 py-3">{p.precoVenda ? formatBRL(p.precoVenda) : '-'}</td>
-                    <td className="px-4 py-3">{margem === null ? '-' : formatPct(margem)}</td>
                     <td className="px-4 py-3">
                       <Badge tone={status.tone}>{status.label}</Badge>
                     </td>
-                    <td className="px-4 py-3 text-xs text-slate-500">{fmtDateBR(p.atualizadoEm)}</td>
+                    <td className="px-4 py-3 text-xs text-slate-500">{fmtDateBR(p.custoAtualizadoEm ?? p.atualizadoEm)}</td>
                   </tr>
                 ))
               )}
@@ -236,19 +232,23 @@ export function ProdutosPage() {
         </div>
 
         <div className="rounded-2xl bg-slate-900 p-4 text-white shadow-sm">
-          <div className="text-sm font-semibold">Status visual (margem)</div>
+          <div className="text-sm font-semibold">Como interpretar</div>
+          <div className="mt-2 text-sm text-slate-200">
+            Nesta tela, o foco é o <b>preço de custo</b> (editável). O preço de venda foi removido para evitar decisões com base em valores
+            inconsistentes.
+          </div>
           <div className="mt-3 grid gap-2 text-sm">
             <div className="flex items-center justify-between rounded-xl bg-white/10 p-3">
-              <span>🟢 Saudável</span>
-              <span className="text-slate-200">&gt; 25%</span>
+              <span>OK</span>
+              <span className="text-slate-200">custo definido</span>
             </div>
             <div className="flex items-center justify-between rounded-xl bg-white/10 p-3">
-              <span>🟡 Médio</span>
-              <span className="text-slate-200">15–25%</span>
+              <span>Pendente</span>
+              <span className="text-slate-200">aguardando sync/validar</span>
             </div>
             <div className="flex items-center justify-between rounded-xl bg-white/10 p-3">
-              <span>🔴 Crítico</span>
-              <span className="text-slate-200">&lt; 15%</span>
+              <span>Sem custo</span>
+              <span className="text-slate-200">defina manualmente</span>
             </div>
           </div>
         </div>

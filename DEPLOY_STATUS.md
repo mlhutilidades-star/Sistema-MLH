@@ -1,6 +1,6 @@
 # ✅ DEPLOY STATUS — Sistema MLH
 
-**Data:** 2026-01-27
+**Data:** 2026-01-28
 
 ## URLs de Produção
 - Frontend: https://sistema-mlh-frontend-production.up.railway.app
@@ -17,6 +17,24 @@
 - Fluxo de edição de custos (impacto em lucro/margem): ✅ OK (recalcula imediatamente)
 - Relatórios (PDF semanal): ✅ GERADO (distribuição automática opcional)
 - Automações semanais: ✅ HABILITADAS
+- UX Produtos: ✅ Removida exibição de preço de venda; custo é o único campo editável
+
+## Shopee — renda líquida (escrow) ✅
+
+- Correção aplicada: quando `get_order_detail` retorna `escrow_amount=0/ausente`, o backend consulta `/payment/get_escrow_detail` e usa `response.order_income.escrow_amount` como **renda líquida real**.
+- Evidência (caso real): pedido `260123SMBEYS4B` (23/01/2026) foi corrigido para `rendaLiquida = 42.36` (custo 35.97; lucro 6.39; margem ~15.1%).
+
+### Endpoints admin úteis (produção)
+
+> Todos exigem header `x-admin-secret` (mesmo valor de `OAUTH_ADMIN_SECRET`).
+
+- Debug do pedido na Shopee (não persiste): `GET /api/shopee/orders/:orderSn/debug`
+- Reprocessamento DB-only (corrige renda via soma de itens, sem chamar Shopee):
+	- `POST /api/shopee/reprocess-profit?days=30`
+	- `GET /api/shopee/reprocess-profit/status`
+- Reprocessamento via Shopee API (recalcula margem/lucro usando Shopee, incluindo escrow detail):
+	- `POST /api/shopee/reprocess-profit-from-shopee?days=30`
+	- `GET /api/shopee/reprocess-profit-from-shopee/status`
 
 ## Ressalvas (podem ser ativadas depois)
 - Notificações Slack: ⚠️ PENDENTE (webhook real pode ser configurado depois)
@@ -31,7 +49,7 @@
 - ✅ Documentação atualizada
 - ⚠️ Notificações (Slack/Email): pendente (ativar quando necessário)
 
-## Última validação técnica (2026-01-27)
+## Última validação técnica (2026-01-28)
 - `GET /health` backend: OK
 - `GET /health` frontend: OK
 - `GET /api/relatorios/lucro-total?dataInicio=YYYY-MM-DD&dataFim=YYYY-MM-DD`: OK

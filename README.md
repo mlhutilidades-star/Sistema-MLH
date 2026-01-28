@@ -1,8 +1,8 @@
 # 🚀 Sistema MLH - Integração Tiny ERP v3 + Shopee Open API v2
 
 > **Status:** ✅ SISTEMA OPERACIONAL E FUNCIONAL (produção)  
-> **Versão:** 1.0.0  
-> **Data:** 2024-01-15
+> **Versão:** 1.0.1  
+> **Data:** 2026-01-28
 
 ---
 
@@ -68,6 +68,18 @@ railway up
 - **Relatório semanal não apareceu**: verifique `WEEKLY_AUTOMATION_ENABLED=true` e o cron no backend.
 - **Alertas não chegam no Slack**: configure `ALERTS_SLACK_WEBHOOK_URL` no Railway.
 
+### 🧾 Shopee — renda líquida (escrow) e correções
+
+- Regra de verdade para **renda líquida**: usar o valor de escrow (repasse) retornado pela Shopee.
+- Observação importante: em alguns pedidos, o endpoint de pedido (`get_order_detail`) pode retornar `escrow_amount=0/ausente` mesmo quando existe repasse real.
+- Solução aplicada no backend: quando isso acontece, o sync consulta `/payment/get_escrow_detail` e usa `response.order_income.escrow_amount`.
+
+**Validação em produção (admin):**
+
+- Debug de um pedido (não persiste no banco): `GET /api/shopee/orders/:orderSn/debug` (header `x-admin-secret`).
+- Reprocessar lucro/margem usando Shopee (server-side): `POST /api/shopee/reprocess-profit-from-shopee?days=30` (header `x-admin-secret`).
+- Ver status do job: `GET /api/shopee/reprocess-profit-from-shopee/status` (header `x-admin-secret`).
+
 ### 🧑‍💼 Contatos de suporte
 
 - Suporte MLH: (preencher nome + WhatsApp/email)
@@ -128,6 +140,13 @@ npm run dev
 
 - Tela em `/otimizacao` consome `GET /api/otimizacao/precos`.
 - Botão “Aplicar Ajuste” chama `PATCH /api/produtos/:id/preco-venda` e requer `x-admin-secret` (definido na tela Config).
+
+### Produtos (custos)
+
+- Tela em `/produtos` foca em **preço de custo** (único campo editável na listagem).
+- O **preço de venda não é exibido** nessa tela para evitar decisões com base em valores inconsistentes.
+- Mostra **status do custo** (ex.: `OK`, `PENDENTE`) e data de atualização do custo.
+- Permite upload de planilha do Tiny para atualização em lote (exige `x-admin-secret`).
 
 ---
 
