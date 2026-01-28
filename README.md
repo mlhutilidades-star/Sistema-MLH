@@ -1,6 +1,6 @@
 # 🚀 Sistema MLH - Integração Tiny ERP v3 + Shopee Open API v2
 
-> **Status:** ✅ SISTEMA OPERACIONAL (produção)  
+> **Status:** ✅ SISTEMA OPERACIONAL E FUNCIONAL (produção)  
 > **Versão:** 1.0.0  
 > **Data:** 2024-01-15
 
@@ -70,8 +70,21 @@ railway up
 
 ### 🧑‍💼 Contatos de suporte
 
-- Suporte MLH: (preencher)
-- Operações/DevOps: (preencher)
+- Suporte MLH: (preencher nome + WhatsApp/email)
+- Operações/DevOps: (preencher nome + WhatsApp/email)
+
+### 🔔 Como ativar notificações (futuro)
+
+O sistema já suporta alertas (Slack/email) e distribuição de relatório semanal. Para ativar quando necessário:
+
+- **Slack** (recomendado): configure `ALERTS_SLACK_WEBHOOK_URL` no Railway do serviço `api-backend`.
+- **Email** (opcional): configure `ALERTS_EMAIL_ENABLED=true` e as variáveis SMTP no Railway.
+
+Depois de configurar, use o teste de alerta:
+
+```bash
+railway ssh -s api-backend node dist/scripts/triggerTestAlert.js
+```
 
 ### 🧭 Como usar (com screenshots)
 

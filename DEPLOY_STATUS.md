@@ -6,18 +6,30 @@
 - Frontend: https://sistema-mlh-frontend-production.up.railway.app
 - Backend: https://api-backend-production-af22.up.railway.app
 
-## Status Atual
-- Healthcheck Backend: OK
-- Healthcheck Frontend: OK
-- Endpoints críticos: OK (relatórios exigem `dataInicio`/`dataFim`)
-- Automações semanais: HABILITADAS
-- Alertas: HABILITADOS (aguardando webhook Slack real e/ou SMTP)
+## Status
 
-## Pendências para “100% pronto”
-1. Inserir webhook real do Slack do Grupo MLH em `ALERTS_SLACK_WEBHOOK_URL` e confirmar recebimento.
-2. (Opcional) Configurar SMTP para envio por email (ou decidir “somente Slack”).
-3. Executar smoke test completo na UI com `OAUTH_ADMIN_SECRET` real (edição de custo + otimização + relatório).
-4. Adicionar screenshots em `docs/screenshots/` e referenciar no README.
+**SISTEMA OPERACIONAL ✅**
+
+## Status Atual
+- Healthcheck Backend: ✅ OK
+- Healthcheck Frontend: ✅ OK
+- Endpoints críticos: ✅ OK (relatórios exigem `dataInicio`/`dataFim`)
+- Fluxo de edição de custos (impacto em lucro/margem): ✅ OK (recalcula imediatamente)
+- Relatórios (PDF semanal): ✅ GERADO (distribuição automática opcional)
+- Automações semanais: ✅ HABILITADAS
+
+## Ressalvas (podem ser ativadas depois)
+- Notificações Slack: ⚠️ PENDENTE (webhook real pode ser configurado depois)
+- Email automático: ⚠️ PENDENTE (SMTP pode ser configurado depois)
+- Distribuição automática de relatórios: ⚠️ PENDENTE (nenhum canal configurado no momento)
+
+## Checklist final (validado)
+- ✅ Health checks funcionando
+- ✅ Fluxo de edição de custos validado (recalcula lucro/margem)
+- ✅ Relatórios gerados
+- ✅ Interface responsiva (frontend em produção)
+- ✅ Documentação atualizada
+- ⚠️ Notificações (Slack/Email): pendente (ativar quando necessário)
 
 ## Última validação técnica (2026-01-27)
 - `GET /health` backend: OK
