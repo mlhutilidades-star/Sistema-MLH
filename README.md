@@ -96,6 +96,23 @@ Para evitar o cenário comum de **refresh token expirar** e o sistema ficar dias
 - Trocar code por tokens (e salvar no DB): `POST /api/shopee/oauth/exchange`
 - Refresh manual (e salvar no DB): `POST /api/shopee/oauth/refresh`
 
+**UI (recomendado):**
+
+- A tela https://sistema-mlh-frontend-production.up.railway.app/config possui a seção **Shopee OAuth** com:
+  - Botão **Autorizar Shopee** (abre popup/aba com a autorização)
+  - Botão **Concluir autorização** (troca o `code` por tokens no backend)
+  - Botão **Refresh agora**
+  - Status de tokens (access/refresh, expiração, último refresh e último erro)
+  - Auto-atualização do status a cada ~30s
+
+**Passo-a-passo (produção):**
+
+1. Acesse https://sistema-mlh-frontend-production.up.railway.app/config
+2. Cole o `OAUTH_ADMIN_SECRET` (fica salvo no navegador).
+3. Em **Shopee OAuth**, clique em **Autorizar Shopee** e conclua no popup.
+4. Ao voltar, clique em **Concluir autorização** (se não concluir automaticamente).
+5. Verifique o status (deve ficar **Ativo** e `needsReauth=false`).
+
 **Job/Script:**
 
 - Rodar refresh manual: `cd backend && npm run shopee:refresh-token`

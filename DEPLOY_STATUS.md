@@ -52,6 +52,15 @@ O backend suporta persistência de tokens no Postgres e refresh automático para
 - Trocar code por tokens (salva no DB): `POST /api/shopee/oauth/exchange`
 - Refresh manual (salva no DB): `POST /api/shopee/oauth/refresh`
 
+### UI (Config)
+
+- Página: https://sistema-mlh-frontend-production.up.railway.app/config
+- Seção **Shopee OAuth**:
+	- **Autorizar Shopee** (abre popup)
+	- **Concluir autorização** (exchange do `code` salvo pelo callback)
+	- **Refresh agora**
+	- Status de tokens + auto-refresh de status (~30s)
+
 ### Observação
 
 Reautorização normalmente é **1x** (como ERPs), mas pode ser necessária novamente se a Shopee revogar permissões/app ou se o refresh token já tiver expirado.
