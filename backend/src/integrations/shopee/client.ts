@@ -13,6 +13,7 @@ import type {
   ShopeeItemDetailResponse,
   ShopeeOrderListResponse,
   ShopeeOrderDetailResponse,
+  ShopeeEscrowDetailResponse,
   ShopeeAdsReportResponse,
   ShopeeAdsBalanceResponse,
 } from './types';
@@ -66,22 +67,6 @@ export class ShopeeClient {
         return response;
       },
       (error: AxiosError) => {
-        // Tentar refresh do access_token (1x) quando a Shopee indicar falha de auth/token.
-        const cfg = error.config as any;
-        const alreadyRetried = !!cfg?.__shopeeRetried;
-        const status = error.response?.status;
-        const data: any = error.response?.data;
-        const errorText = `${data?.error || ''} ${data?.message || ''}`.toLowerCase();
-        const shouldRefresh =
-          !alreadyRetried &&
-          !!this.refreshToken &&
-          (status === 403 || status === 401 || errorText.includes('auth') || errorText.includes('token'));
-
-        if (shouldRefresh) {
-          cfg.__shopeeRetried = true;
-          return this.refreshAndRetry(cfg);
-        }
-
         if (error.config) {
           loggers.api.error(
             error.config.method?.toUpperCase() || 'GET',
@@ -94,9 +79,31 @@ export class ShopeeClient {
     );
   }
 
-  private async refreshAndRetry(originalConfig: any) {
-    await this.ensureRefreshed();
-    return this.client.request(originalConfig);
+  private async getWithAuth<T>(path: string, params: Record<string, any>): Promise<T> {
+    const doRequest = async () => {
+      const url = buildShopeeUrl(path, params, this.accessToken);
+      const { data } = await this.client.get<T>(url);
+      return this.validateResponse(data as any);
+    };
+
+    try {
+      return await doRequest();
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        const status = error.response?.status;
+        const data: any = error.response?.data;
+        const errorText = `${data?.error || ''} ${data?.message || ''}`.toLowerCase();
+        const shouldRefresh =
+          !!this.refreshToken &&
+          (status === 403 || status === 401 || errorText.includes('auth') || errorText.includes('token'));
+
+        if (shouldRefresh) {
+          await this.ensureRefreshed();
+          return await doRequest();
+        }
+      }
+      throw error;
+    }
   }
 
   private async ensureRefreshed(): Promise<void> {
@@ -143,7 +150,12 @@ export class ShopeeClient {
     }
 
     if (axios.isAxiosError(error)) {
-      throw new Error(`Shopee API Error: ${error.message}`);
+      const status = error.response?.status;
+      const data: any = error.response?.data;
+      if (data?.error || data?.message) {
+        throw new Error(`Shopee API Error: HTTP ${status}: ${data.error || ''} ${data.message || ''}`.trim());
+      }
+      throw new Error(`Shopee API Error: HTTP ${status}: ${error.message}`);
     }
     
     throw error;
@@ -253,12 +265,9 @@ export class ShopeeClient {
         params.cursor = cursor;
       }
 
-      const url = buildShopeeUrl(path, params, this.accessToken);
-
       const response = await retryWithBackoff(
         async () => {
-          const { data } = await this.client.get<ShopeeOrderListResponse>(url);
-          return this.validateResponse(data);
+          return this.getWithAuth<ShopeeOrderListResponse>(path, params);
         },
         config.shopee.maxRetries
       );
@@ -290,33 +299,52 @@ export class ShopeeClient {
   async getOrderDetail(orderSnList: string[]): Promise<ShopeeOrderDetailResponse> {
     try {
       const path = '/order/get_order_detail';
-      const url = buildShopeeUrl(
-        path,
-        {
-          order_sn_list: orderSnList.join(','),
-          response_optional_fields: [
-            'buyer_user_id',
-            'buyer_username',
-            'estimated_shipping_fee',
-            'actual_shipping_fee',
-            'payment_method',
-            'total_amount',
-            'escrow_amount',
-            'item_list',
-          ].join(','),
-        },
-        this.accessToken
-      );
+      const params = {
+        order_sn_list: orderSnList.join(','),
+        response_optional_fields: [
+          'buyer_user_id',
+          'buyer_username',
+          'estimated_shipping_fee',
+          'actual_shipping_fee',
+          'payment_method',
+          'total_amount',
+          'escrow_amount',
+          'item_list',
+        ].join(','),
+      };
 
       const response = await retryWithBackoff(
         async () => {
-          const { data } = await this.client.get<ShopeeOrderDetailResponse>(url);
-          return this.validateResponse(data);
+          return this.getWithAuth<ShopeeOrderDetailResponse>(path, params);
         },
         config.shopee.maxRetries
       );
 
       return response;
+    } catch (error) {
+      this.handleShopeeError(error);
+    }
+  }
+
+  /**
+   * Buscar detalhamento de repasse (escrow) de um pedido.
+   * Observação: a disponibilidade/shape depende do país/conta Shopee.
+   */
+  async getEscrowDetail(orderSn: string): Promise<ShopeeEscrowDetailResponse> {
+    try {
+      const path = '/payment/get_escrow_detail';
+
+      // Tentativa 1: parâmetro mais comum
+      const attempt = async (params: Record<string, any>) => {
+        return this.getWithAuth<ShopeeEscrowDetailResponse>(path, params);
+      };
+
+      try {
+        return await retryWithBackoff(async () => attempt({ order_sn: orderSn }), config.shopee.maxRetries);
+      } catch (_e) {
+        // Tentativa 2: alguns ambientes usam lista
+        return await retryWithBackoff(async () => attempt({ order_sn_list: orderSn }), config.shopee.maxRetries);
+      }
     } catch (error) {
       this.handleShopeeError(error);
     }

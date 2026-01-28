@@ -35,6 +35,16 @@ function parseNumberEnv(name: string, fallback: number): number {
   return Number.isFinite(v) ? v : fallback;
 }
 
+function parseNumberArg(argv: string[], name: string): number | undefined {
+  const idx = argv.findIndex((a) => a === name || a.startsWith(`${name}=`));
+  if (idx === -1) return undefined;
+  const arg = argv[idx];
+  const raw = arg.includes('=') ? arg.split('=')[1] : argv[idx + 1];
+  if (!raw) return undefined;
+  const v = Number(raw);
+  return Number.isFinite(v) ? v : undefined;
+}
+
 async function getSoldSkusFromDbLastDays(days: number): Promise<Map<string, string | null>> {
   const prisma = getPrismaClient();
   const since = new Date(Date.now() - Math.max(1, Math.floor(days)) * 86400 * 1000);
@@ -416,7 +426,7 @@ async function syncCustosTinyOtimizado(options?: { refreshCosts?: boolean; lookb
   return { total, custosOk, custosAusentes, pulados24h, erros };
 }
 
-async function syncPedidosMargemShopee(): Promise<{ pedidos: number; itens: number; custosAusentes: number }> {
+async function syncPedidosMargemShopee(options?: { days?: number }): Promise<{ pedidos: number; itens: number; custosAusentes: number }> {
   const prisma = getPrismaClient();
   const token = process.env.SHOPEE_ACCESS_TOKEN;
   if (!token) throw new Error('SHOPEE_ACCESS_TOKEN não configurado');
@@ -424,7 +434,7 @@ async function syncPedidosMargemShopee(): Promise<{ pedidos: number; itens: numb
   const shopee = new ShopeeClient(token);
   const lucroService = new LucroService();
 
-  const daysRaw = parseNumberEnv('MARGIN_LOOKBACK_DAYS', 30);
+  const daysRaw = options?.days ?? parseNumberEnv('MARGIN_LOOKBACK_DAYS', 30);
   const days = Math.max(1, Math.floor(daysRaw));
   const nowSec = Math.floor(Date.now() / 1000);
   const fromSec = nowSec - days * 86400;
@@ -475,16 +485,37 @@ async function syncPedidosMargemShopee(): Promise<{ pedidos: number; itens: numb
     const produtoBySku = new Map(produtos.map((p) => [p.sku.toLowerCase(), p] as const));
 
     for (const o of list) {
-      const rendaLiquida = Number(o.escrow_amount ?? o.total_amount ?? 0) || 0;
       const totalBruto = Number(o.total_amount ?? 0) || 0;
-      const taxasShopee = totalBruto - rendaLiquida;
+
+      // Alguns ambientes retornam `escrow_amount` como 0 no get_order_detail.
+      // Quando isso acontecer, tentamos obter o valor correto via /payment/get_escrow_detail.
+      let escrowFromDetail: number | undefined;
+      if (!(Number(o.escrow_amount ?? 0) > 0)) {
+        try {
+          const escrowResp: any = await (shopee as any).getEscrowDetail(o.order_sn);
+          const income = escrowResp?.response?.order_income;
+          const escrow = Number(income?.escrow_amount ?? income?.escrow_amount_after_adjustment ?? 0) || 0;
+          if (escrow > 0) {
+            escrowFromDetail = escrow;
+          }
+        } catch (e: any) {
+          logger.warn(`⚠️  Falha ao buscar escrow_detail para pedido ${o.order_sn}: ${String(e?.message || e)}`);
+        }
+      }
 
       // construir lista de produtos usados para cálculo
       const produtosDoPedido = Array.from(new Set((o.item_list || []).map((it) => String(it.model_sku || it.item_sku || '').trim()).filter(Boolean)))
         .map((sku) => produtoBySku.get(sku.toLowerCase()))
         .filter(Boolean) as any;
 
-      const calc = lucroService.calcularLucroPedido(o as any, produtosDoPedido);
+      const calc = lucroService.calcularLucroPedido(
+        ({
+          ...(o as any),
+          escrow_amount: escrowFromDetail ?? (o as any).escrow_amount,
+        } as any),
+        produtosDoPedido
+      );
+      const taxasShopee = totalBruto - calc.rendaLiquida;
 
       const createdAt = new Date((o.create_time || Math.floor(Date.now() / 1000)) * 1000);
 
@@ -534,7 +565,7 @@ async function syncPedidosMargemShopee(): Promise<{ pedidos: number; itens: numb
         if (!produto || custoUnitario <= 0) custosAusentes++;
 
         const itemRevenue = (Number(it.model_discounted_price ?? 0) || 0) * qty;
-        const rendaItem = totalItemRevenue > 0 ? rendaLiquida * (itemRevenue / totalItemRevenue) : 0;
+        const rendaItem = totalItemRevenue > 0 ? calc.rendaLiquida * (itemRevenue / totalItemRevenue) : 0;
         const custoTotal = custoUnitario * qty;
         const lucro = rendaItem - custoTotal;
 
@@ -653,6 +684,7 @@ async function syncManual() {
     const refreshCosts = hasFlag(argv, '--refresh-costs') || hasFlag(argv, '--refreshCosts');
     const otimizado = hasFlag(argv, '--otimizado') || hasFlag(argv, '--optimized');
     const useMapping = hasFlag(argv, '--com-mapeamento') || hasFlag(argv, '--com-mapeamento-sku') || hasFlag(argv, '--with-mapping');
+    const daysOverride = parseNumberArg(argv, '--days');
     const fullMarginCalc =
       hasFlag(argv, '--full-margin-calc') ||
       hasFlag(argv, '--calcular-lucro') ||
@@ -682,14 +714,14 @@ async function syncManual() {
       const resultado = await syncProdutosCustoPorSkuShopee({
         onlySoldSkus: true,
         refreshCosts,
-        lookbackDays: parseNumberEnv('MARGIN_LOOKBACK_DAYS', 30),
+        lookbackDays: daysOverride ?? parseNumberEnv('MARGIN_LOOKBACK_DAYS', 30),
       });
       logger.info(
         `✅ Produtos (SKUs vendidos -> custo Tiny): ${resultado.total} SKUs; custo ok ${resultado.custoEncontrado}; custo ausente ${resultado.custoAusente}; pulados24h ${resultado.pulados24h}; erros ${resultado.erros}`
       );
 
       if (fullMarginCalc) {
-        const r = await syncPedidosMargemShopee();
+        const r = await syncPedidosMargemShopee({ days: daysOverride });
         logger.info(`✅ Pedidos (lucro): ${r.pedidos} pedidos; ${r.itens} itens; custos ausentes: ${r.custosAusentes}`);
 
         try {

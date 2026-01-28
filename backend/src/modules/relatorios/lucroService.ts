@@ -3,6 +3,8 @@ import type { Produto, Pedido } from '@prisma/client';
 type ShopeeOrderLike = {
   escrow_amount?: number;
   total_amount?: number;
+  estimated_shipping_fee?: number;
+  actual_shipping_fee?: number;
   item_list?: Array<{
     item_sku?: string;
     model_sku?: string;
@@ -13,13 +15,34 @@ type ShopeeOrderLike = {
 };
 
 export class LucroService {
+  calcularRendaLiquidaPedido(pedidoShopee: ShopeeOrderLike): number {
+    const escrow = Number(pedidoShopee.escrow_amount ?? 0) || 0;
+    if (escrow > 0) return escrow;
+
+    const total = Number(pedidoShopee.total_amount ?? 0) || 0;
+    const shipping =
+      Number(pedidoShopee.actual_shipping_fee ?? pedidoShopee.estimated_shipping_fee ?? 0) || 0;
+
+    const totalMinusShipping = total - shipping;
+    if (totalMinusShipping > 0) return totalMinusShipping;
+
+    const itemTotal = (pedidoShopee.item_list || []).reduce((sum, it) => {
+      const qty = Number(it.model_quantity_purchased ?? 0) || 0;
+      const price = Number(it.model_discounted_price ?? 0) || 0;
+      return sum + price * qty;
+    }, 0);
+    if (itemTotal > 0) return itemTotal;
+
+    return total;
+  }
+
   calcularLucroPedido(pedidoShopee: ShopeeOrderLike, produtos: Produto[]): {
     rendaLiquida: number;
     custoProdutos: number;
     lucro: number;
     margem: number;
   } {
-    const rendaLiquida = Number(pedidoShopee.escrow_amount ?? pedidoShopee.total_amount ?? 0) || 0;
+    const rendaLiquida = this.calcularRendaLiquidaPedido(pedidoShopee);
 
     const produtoBySku = new Map<string, Produto>();
     for (const p of produtos) {

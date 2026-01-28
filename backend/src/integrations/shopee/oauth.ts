@@ -201,32 +201,48 @@ export async function refreshAccessToken(input: {
     throw new Error('Credenciais Shopee ausentes (SHOPEE_PARTNER_ID/SHOPEE_PARTNER_KEY)');
   }
 
-  // Mantém compatibilidade com o endpoint atual do projeto, mas usando o padrão de assinatura/headers.
-  const apiPathForSign = '/api/v2/auth/access_token/refresh';
-  const urlPath = '/auth/access_token/refresh';
-  const auth = generateShopeeSignature({
-    partnerId: config.shopee.partnerId,
-    partnerKey: config.shopee.partnerKey,
-    path: apiPathForSign,
-  });
-  const url = buildShopeeV2UrlWithAuthQuery(urlPath, auth);
-
   try {
-    const { data } = await axios.post<ShopeeApiEnvelope<ShopeeTokenResponse>>(url, {
-      partner_id: config.shopee.partnerId,
-      shop_id: input.shopId,
-      refresh_token: input.refreshToken,
-      timestamp: auth.timestamp,
-    }, {
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: auth.sign,
-      },
-      timeout: config.shopee.timeout,
-    });
+    const attempt = async (apiPathForSign: string, urlPath: string) => {
+      const auth = generateShopeeSignature({
+        partnerId: config.shopee.partnerId,
+        partnerKey: config.shopee.partnerKey,
+        path: apiPathForSign,
+      });
+      const url = buildShopeeV2UrlWithAuthQuery(urlPath, auth);
 
-    const tokens = unwrapShopeeTokenResponse(data);
-    return normalizeShopeeTokenResponse(tokens, { shopId: input.shopId });
+      const { data } = await axios.post<ShopeeApiEnvelope<ShopeeTokenResponse>>(
+        url,
+        {
+          partner_id: config.shopee.partnerId,
+          shop_id: input.shopId,
+          refresh_token: input.refreshToken,
+          timestamp: auth.timestamp,
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: auth.sign,
+          },
+          timeout: config.shopee.timeout,
+        }
+      );
+
+      const tokens = unwrapShopeeTokenResponse(data);
+      return normalizeShopeeTokenResponse(tokens, { shopId: input.shopId });
+    };
+
+    try {
+      // Endpoint mais comum (conforme doc v2): /auth/access_token/refresh
+      return await attempt('/api/v2/auth/access_token/refresh', '/auth/access_token/refresh');
+    } catch (error) {
+      const msg = extractAxiosErrorMessage(error).toLowerCase();
+      // Alguns ambientes retornam error_not_found para /refresh; fallback para /get.
+      if (msg.includes('http 404') || msg.includes('error_not_found')) {
+        logger.warn('Shopee refresh endpoint not found; trying fallback /auth/access_token/get');
+        return await attempt('/api/v2/auth/access_token/get', '/auth/access_token/get');
+      }
+      throw error;
+    }
   } catch (error) {
     throw new Error(`Falha ao renovar access token: ${extractAxiosErrorMessage(error)}`);
   }

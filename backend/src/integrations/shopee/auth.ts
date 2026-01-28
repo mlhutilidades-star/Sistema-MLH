@@ -18,7 +18,8 @@ function getSigningPath(path: string): string {
   // Quando usamos baseUrl = https://.../api/v2, o `path` da assinatura precisa incluir /api/v2.
   // Ex.: /api/v2/auth/access_token/get
   if (path.startsWith('/api/')) return path;
-  if (config.shopee.baseUrl.endsWith('/api/v2')) return `/api/v2${path}`;
+  const normalizedBaseUrl = config.shopee.baseUrl.replace(/\/+$/, '');
+  if (normalizedBaseUrl.endsWith('/api/v2')) return `/api/v2${path}`;
   return path;
 }
 
@@ -67,6 +68,8 @@ export function buildShopeeUrl(
     throw new Error('SHOPEE_SHOP_ID não configurado');
   }
 
+  const normalizedBaseUrl = config.shopee.baseUrl.replace(/\/+$/, '');
+
   const { sign, timestamp } = generateShopeeSignature({
     partnerId: config.shopee.partnerId,
     partnerKey: config.shopee.partnerKey,
@@ -87,7 +90,7 @@ export function buildShopeeUrl(
     urlParams.append('access_token', accessToken);
   }
 
-  return `${config.shopee.baseUrl}${path}?${urlParams.toString()}`;
+  return `${normalizedBaseUrl}${path}?${urlParams.toString()}`;
 }
 
 /**
@@ -110,7 +113,8 @@ export function generateAuthorizationUrl(redirectUrl: string): string {
     timestamp: timestamp.toString(),
   });
 
-  return `${config.shopee.baseUrl}${path}?${params.toString()}`;
+  const normalizedBaseUrl = config.shopee.baseUrl.replace(/\/+$/, '');
+  return `${normalizedBaseUrl}${path}?${params.toString()}`;
 }
 
 /**

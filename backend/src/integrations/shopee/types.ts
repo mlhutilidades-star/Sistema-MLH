@@ -125,6 +125,14 @@ export interface ShopeeOrderDetailResponse {
   };
 }
 
+export interface ShopeeEscrowDetailResponse {
+  error: string;
+  message: string;
+  warning?: string;
+  request_id?: string;
+  response?: any;
+}
+
 export interface ShopeeAdsDailyPerformance {
   date: string;
   campaign_id: number;
