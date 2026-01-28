@@ -7,6 +7,13 @@ import { logger, loggers } from '../../shared/logger';
 import { TinyClient } from '../../integrations/tiny/client';
 import { ShopeeClient } from '../../integrations/shopee/client';
 
+function envInt(name: string, fallback: number): number {
+  const raw = String(process.env[name] ?? '').trim();
+  if (!raw) return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) ? Math.trunc(n) : fallback;
+}
+
 export class ProdutoService {
   private prisma = getPrismaClient();
   private tinyClient: TinyClient;
@@ -273,10 +280,103 @@ export class ProdutoService {
    * Atualizar custo real de um produto
    */
   async atualizarCustoReal(id: string, custoReal: number) {
-    return this.prisma.produto.update({
+    const produto = await this.prisma.produto.update({
       where: { id },
       data: { custoReal, atualizadoEm: new Date() },
     });
+
+    // Recalcular lucro/margem dos pedidos recentes que tenham este SKU.
+    // Isso garante que a UI reflita o impacto do custo imediatamente.
+    try {
+      const lookbackDaysRaw = envInt('RECALC_LOOKBACK_DAYS', 30);
+      const lookbackDays = Math.max(1, Math.min(365, lookbackDaysRaw));
+      const since = new Date(Date.now() - lookbackDays * 86400 * 1000);
+
+      const sku = String(produto.sku || '').trim();
+      if (!sku) return produto;
+
+      // Também recalcular SKUs Shopee mapeados para este código Tiny.
+      const mapped = await this.prisma.mapeamentoSKU.findMany({
+        where: { codigoTiny: sku },
+        select: { skuShopee: true },
+      });
+      const skusToRecalc = Array.from(new Set([sku, ...mapped.map((m) => String(m.skuShopee || '').trim()).filter(Boolean)]));
+
+      // Buscar pedidos afetados
+      const affectedPedidoIds = await this.prisma.pedidoItem.findMany({
+        where: {
+          sku: { in: skusToRecalc },
+          pedido: { data: { gte: since } },
+        },
+        select: { pedidoId: true },
+        distinct: ['pedidoId'],
+        take: 500,
+      });
+
+      if (!affectedPedidoIds.length) return produto;
+
+      const pedidoIds = affectedPedidoIds.map((p) => p.pedidoId);
+      const pedidos = await this.prisma.pedido.findMany({
+        where: { pedidoId: { in: pedidoIds } },
+        include: { itens: true },
+      });
+
+      let pedidosAtualizados = 0;
+      let itensAtualizados = 0;
+
+      for (const pedido of pedidos) {
+        const updates: any[] = [];
+        let custoPedido = 0;
+
+        for (const item of pedido.itens) {
+          const itemSku = String(item.sku || '').trim();
+          const qty = Number(item.quantidade || 0) || 0;
+          if (!itemSku || qty <= 0) continue;
+
+          if (skusToRecalc.includes(itemSku)) {
+            const custoUnit = Number(custoReal) || 0;
+            const custoTotal = custoUnit * qty;
+            const lucroItem = (Number(item.rendaLiquida) || 0) - custoTotal;
+            custoPedido += custoTotal;
+
+            updates.push(
+              this.prisma.pedidoItem.update({
+                where: { id: item.id },
+                data: { custoUnitario: custoUnit, custoTotal, lucro: lucroItem },
+              })
+            );
+            itensAtualizados++;
+          } else {
+            custoPedido += Number(item.custoTotal) || 0;
+          }
+        }
+
+        const renda = Number(pedido.rendaLiquida) || 0;
+        const lucroPedido = renda - custoPedido;
+        const margem = renda > 0 ? (lucroPedido / renda) * 100 : 0;
+
+        updates.push(
+          this.prisma.pedido.update({
+            where: { id: pedido.id },
+            data: { custoProdutos: custoPedido, lucro: lucroPedido, margem },
+          })
+        );
+
+        await this.prisma.$transaction(updates);
+        pedidosAtualizados++;
+      }
+
+      logger.info('Recalc após custo atualizado', {
+        sku,
+        lookbackDays,
+        pedidosAtualizados,
+        itensAtualizados,
+      });
+    } catch (e) {
+      logger.warn('Falha ao recalcular pedidos após atualizar custo', { error: e });
+    }
+
+    return produto;
   }
 
   /**

@@ -119,6 +119,20 @@ connectDatabase()
           const child = spawn(cmd, args, { stdio: 'inherit', env: process.env, cwd: process.cwd() });
           child.on('exit', (code) => {
             logger.info('Weekly report: finalizado', { code });
+
+            // Distribuição (Slack/email) — best-effort; script faz no-op se não houver credenciais.
+            try {
+              const notify = spawn('node', ['dist/scripts/sendLatestWeeklyReport.js'], {
+                stdio: 'inherit',
+                env: process.env,
+                cwd: process.cwd(),
+              });
+              notify.on('exit', (notifyCode) => {
+                logger.info('Weekly report: distribuição finalizada', { code: notifyCode });
+              });
+            } catch (e) {
+              logger.warn('Weekly report: falha ao iniciar distribuição', { error: e });
+            }
           });
         } catch (e) {
           logger.error('Weekly report: erro', { error: e });
