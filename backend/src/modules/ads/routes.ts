@@ -6,19 +6,45 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { AdsService } from './service';
 import { logger } from '../../shared/logger';
 
+function requireAdmin(req: Request): void {
+  const secret = process.env.OAUTH_ADMIN_SECRET;
+  if (!secret) {
+    throw new Error('OAUTH_ADMIN_SECRET não configurado');
+  }
+
+  const provided = req.header('x-admin-secret');
+  if (!provided || provided !== secret) {
+    throw new Error('Acesso negado');
+  }
+}
+
 class AdsController {
   syncAds = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { accessToken, startDate, endDate } = req.body;
 
-      if (!accessToken || !startDate || !endDate) {
+      if (!startDate || !endDate) {
         return res.status(400).json({
           success: false,
-          error: 'accessToken, startDate e endDate são obrigatórios',
+          error: 'startDate e endDate são obrigatórios',
         });
       }
 
-      const service = new AdsService(accessToken);
+      let token = accessToken as string | undefined;
+      // Se não vier token no body, permitir apenas via admin-secret usando o token do servidor.
+      if (!token) {
+        requireAdmin(req);
+        token = process.env.SHOPEE_ACCESS_TOKEN;
+      }
+
+      if (!token) {
+        return res.status(400).json({
+          success: false,
+          error: 'accessToken ausente (ou configure SHOPEE_ACCESS_TOKEN no servidor)',
+        });
+      }
+
+      const service = new AdsService(token);
       const resultado = await service.syncAdsShopee(startDate, endDate);
 
       return res.json({ success: true, data: resultado });

@@ -74,6 +74,39 @@ export class AdsService {
               cpc,
             },
           });
+
+          // Mantém uma visão simplificada em `anuncios` (por dia/campanha), usada por alguns relatórios.
+          const rendaGerada = gmv;
+          const custoProdutos = 0;
+          const lucro = rendaGerada - custoProdutos - gasto;
+          const roi = gasto > 0 ? (lucro / gasto) * 100 : 0;
+
+          await this.prisma.anuncio.upsert({
+            where: {
+              data_campanhaId: {
+                data: new Date(ad.date),
+                campanhaId: ad.campaign_id.toString(),
+              },
+            },
+            create: {
+              data: new Date(ad.date),
+              campanhaId: ad.campaign_id.toString(),
+              campanhaNome: ad.campaign_name,
+              gasto,
+              rendaGerada,
+              custoProdutos,
+              lucro,
+              roi,
+            },
+            update: {
+              campanhaNome: ad.campaign_name,
+              gasto,
+              rendaGerada,
+              custoProdutos,
+              lucro,
+              roi,
+            },
+          });
         }
       }
 

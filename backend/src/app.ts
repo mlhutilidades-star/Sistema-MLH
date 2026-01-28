@@ -11,6 +11,7 @@ import rateLimit from 'express-rate-limit';
 import produtosRoutes from './modules/produtos/routes';
 import financeiroRoutes from './modules/financeiro/routes';
 import adsRoutes from './modules/ads/routes';
+import anunciosRoutes from './modules/anuncios/routes';
 import conciliacaoRoutes from './modules/conciliacao/routes';
 import shopeeRoutes from './modules/shopee/routes';
 import relatoriosRoutes from './modules/relatorios/routes';
@@ -113,6 +114,7 @@ app.get('/', (_req: Request, res: Response) => {
       produtos: '/api/produtos',
       financeiro: '/api/financeiro',
       ads: '/api/ads',
+      anuncios: '/api/anuncios',
       conciliacao: '/api/conciliacao',
       mapeamento: '/api/mapeamento',
     },
@@ -131,6 +133,7 @@ app.get('/dashboard', dashboardUiHandler);
 app.use('/api/produtos', produtosRoutes);
 app.use('/api/financeiro', financeiroRoutes);
 app.use('/api/ads', adsRoutes);
+app.use('/api/anuncios', anunciosRoutes);
 app.use('/api/conciliacao', conciliacaoRoutes);
 app.use('/api/shopee', shopeeRoutes);
 app.use('/api/relatorios', relatoriosRoutes);
