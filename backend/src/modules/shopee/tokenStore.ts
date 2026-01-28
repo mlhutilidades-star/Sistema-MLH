@@ -21,6 +21,26 @@ export type ResolvedShopeeTokens = {
   lastRefreshError?: string | null;
 };
 
+function isMissingTableError(err: unknown): boolean {
+  const anyErr = err as any;
+  const code = typeof anyErr?.code === 'string' ? anyErr.code : '';
+  const message = typeof anyErr?.message === 'string' ? anyErr.message : '';
+  if (code === 'P2021') return true;
+  return (
+    /does not exist/i.test(message) &&
+    (/shopee_tokens/i.test(message) || /shopee_oauth_callbacks/i.test(message))
+  );
+}
+
+async function safeDb<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    if (isMissingTableError(err)) return fallback;
+    throw err;
+  }
+}
+
 function safeDate(value: unknown): Date | null {
   if (!value) return null;
   const d = value instanceof Date ? value : new Date(String(value));
@@ -50,8 +70,8 @@ export async function resolveShopeeTokens(prisma: PrismaClient): Promise<Resolve
   const preferDb = String(process.env.SHOPEE_TOKEN_USE_DB || '').trim().toLowerCase() !== 'false';
   if (preferDb) {
     const row = configuredShopId
-      ? await prisma.shopeeToken.findUnique({ where: { shopId: configuredShopId } })
-      : await prisma.shopeeToken.findFirst({ orderBy: { atualizadoEm: 'desc' } });
+      ? await safeDb(() => prisma.shopeeToken.findUnique({ where: { shopId: configuredShopId } }), null)
+      : await safeDb(() => prisma.shopeeToken.findFirst({ orderBy: { atualizadoEm: 'desc' } }), null);
 
     if (row) {
       return {
@@ -110,7 +130,7 @@ export async function upsertShopeeTokens(
   const accessExpiresAt = computeExpiresAt(input.expireIn);
   const refreshExpiresAt = computeExpiresAt(input.refreshExpireIn);
 
-  const existing = await prisma.shopeeToken.findUnique({ where: { shopId: input.shopId } });
+  const existing = await safeDb(() => prisma.shopeeToken.findUnique({ where: { shopId: input.shopId } }), null);
 
   const shouldBackup =
     existing &&
@@ -125,7 +145,9 @@ export async function upsertShopeeTokens(
       }
     : {};
 
-  await prisma.shopeeToken.upsert({
+  await safeDb(
+    () =>
+      prisma.shopeeToken.upsert({
     where: { shopId: input.shopId },
     create: {
       shopId: input.shopId,
@@ -147,34 +169,48 @@ export async function upsertShopeeTokens(
       lastRefreshError: input.lastRefreshError ?? null,
       ...backupData,
     },
-  });
+      }),
+    undefined
+  );
 }
 
 export async function recordShopeeRefreshError(prisma: PrismaClient, shopId: number, error: string): Promise<void> {
-  const existing = await prisma.shopeeToken.findUnique({ where: { shopId } });
+  const existing = await safeDb(() => prisma.shopeeToken.findUnique({ where: { shopId } }), null);
   if (!existing) return;
 
-  await prisma.shopeeToken.update({
-    where: { shopId },
-    data: {
-      lastRefreshAt: new Date(),
-      lastRefreshError: error,
-    },
-  });
+  await safeDb(
+    () =>
+      prisma.shopeeToken.update({
+        where: { shopId },
+        data: {
+          lastRefreshAt: new Date(),
+          lastRefreshError: error,
+        },
+      }),
+    undefined
+  );
 }
 
 export async function saveOauthCallback(
   prisma: PrismaClient,
   input: { shopId?: number; mainAccountId?: number; code?: string | null }
 ): Promise<{ id: string; receivedAt: Date }> {
-  const row = await prisma.shopeeOauthCallback.create({
-    data: {
-      shopId: typeof input.shopId === 'number' && Number.isFinite(input.shopId) ? input.shopId : null,
-      mainAccountId: typeof input.mainAccountId === 'number' && Number.isFinite(input.mainAccountId) ? input.mainAccountId : null,
-      code: input.code ? input.code : null,
-    },
-    select: { id: true, receivedAt: true },
-  });
+  const row = await safeDb(
+    () =>
+      prisma.shopeeOauthCallback.create({
+        data: {
+          shopId: typeof input.shopId === 'number' && Number.isFinite(input.shopId) ? input.shopId : null,
+          mainAccountId:
+            typeof input.mainAccountId === 'number' && Number.isFinite(input.mainAccountId)
+              ? input.mainAccountId
+              : null,
+          code: input.code ? input.code : null,
+        },
+        select: { id: true, receivedAt: true },
+      }),
+    null
+  );
+  if (!row) return { id: 'missing_table', receivedAt: new Date() };
   return row;
 }
 
@@ -185,16 +221,20 @@ export async function getLatestOauthCallback(prisma: PrismaClient): Promise<{
   mainAccountId: number | null;
   hasCode: boolean;
 } | null> {
-  const row = await prisma.shopeeOauthCallback.findFirst({
-    orderBy: { receivedAt: 'desc' },
-    select: {
-      id: true,
-      receivedAt: true,
-      shopId: true,
-      mainAccountId: true,
-      code: true,
-    },
-  });
+  const row = await safeDb(
+    () =>
+      prisma.shopeeOauthCallback.findFirst({
+        orderBy: { receivedAt: 'desc' },
+        select: {
+          id: true,
+          receivedAt: true,
+          shopId: true,
+          mainAccountId: true,
+          code: true,
+        },
+      }),
+    null
+  );
 
   if (!row) return null;
   return {
@@ -213,14 +253,22 @@ export async function consumeLatestOauthCode(prisma: PrismaClient, opts?: { pref
   mainAccountId: number | null;
 } | null> {
   const row = opts?.preferId
-    ? await prisma.shopeeOauthCallback.findUnique({
-        where: { id: opts.preferId },
-        select: { id: true, code: true, shopId: true, mainAccountId: true },
-      })
-    : await prisma.shopeeOauthCallback.findFirst({
-        orderBy: { receivedAt: 'desc' },
-        select: { id: true, code: true, shopId: true, mainAccountId: true },
-      });
+    ? await safeDb(
+        () =>
+          prisma.shopeeOauthCallback.findUnique({
+            where: { id: opts.preferId },
+            select: { id: true, code: true, shopId: true, mainAccountId: true },
+          }),
+        null
+      )
+    : await safeDb(
+        () =>
+          prisma.shopeeOauthCallback.findFirst({
+            orderBy: { receivedAt: 'desc' },
+            select: { id: true, code: true, shopId: true, mainAccountId: true },
+          }),
+        null
+      );
 
   if (!row?.code) return null;
   return { id: row.id, code: row.code, shopId: row.shopId, mainAccountId: row.mainAccountId };
@@ -230,12 +278,16 @@ export async function markOauthExchangeResult(
   prisma: PrismaClient,
   input: { id: string; success: boolean; error?: string | null }
 ): Promise<void> {
-  await prisma.shopeeOauthCallback.update({
-    where: { id: input.id },
-    data: {
-      exchangedAt: new Date(),
-      exchangeError: input.success ? null : (input.error || 'unknown_error'),
-      code: input.success ? null : undefined,
-    },
-  });
+  await safeDb(
+    () =>
+      prisma.shopeeOauthCallback.update({
+        where: { id: input.id },
+        data: {
+          exchangedAt: new Date(),
+          exchangeError: input.success ? null : (input.error || 'unknown_error'),
+          code: input.success ? null : undefined,
+        },
+      }),
+    undefined
+  );
 }
