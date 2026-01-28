@@ -72,6 +72,40 @@ connectDatabase()
     // Alertas automáticos (Slack/email)
     startAlertasScheduler();
 
+    // Shopee OAuth: refresh automático (opcional)
+    const shopeeOauthAutoRefresh = String(process.env.SHOPEE_OAUTH_AUTO_REFRESH || '').trim().toLowerCase() === 'true';
+    if (shopeeOauthAutoRefresh) {
+      // Default: a cada 3 horas (ERP-like). O script decide se precisa refresh (expira < 1h / refresh < 5 dias).
+      const cronExpr = String(process.env.SHOPEE_OAUTH_REFRESH_CRON || '0 */3 * * *').trim();
+      logger.info(`Shopee OAuth auto-refresh: habilitado (cron=${cronExpr})`);
+
+      cron.schedule(cronExpr, async () => {
+        try {
+          logger.info('Shopee OAuth auto-refresh: iniciando (script)');
+          const child = spawn(
+            'node',
+            [
+              'dist/scripts/refreshShopeeToken.js',
+              `--ifExpiringInSec=${process.env.SHOPEE_OAUTH_IF_EXPIRING_IN_SEC || '3600'}`,
+              `--forceRefreshTokenInDays=${process.env.SHOPEE_OAUTH_FORCE_REFRESH_TOKEN_DAYS || '5'}`,
+            ],
+            {
+            stdio: 'inherit',
+            env: process.env,
+            cwd: process.cwd(),
+            }
+          );
+          child.on('exit', (code) => {
+            logger.info('Shopee OAuth auto-refresh: finalizado', { code });
+          });
+        } catch (e) {
+          logger.error('Shopee OAuth auto-refresh: erro ao iniciar script', { error: e });
+        }
+      });
+    } else {
+      logger.info('Shopee OAuth auto-refresh: desabilitado (SHOPEE_OAUTH_AUTO_REFRESH!=true)');
+    }
+
     // Automação semanal: recálculo e relatório
     const weeklyEnabled = String(process.env.WEEKLY_AUTOMATION_ENABLED || '').trim().toLowerCase() === 'true';
     if (weeklyEnabled) {

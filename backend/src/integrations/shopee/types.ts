@@ -6,6 +6,9 @@ export interface ShopeeAuthResponse {
   access_token: string;
   expire_in: number;
   refresh_token: string;
+  // Nem todos os ambientes retornam esses campos; manter opcional.
+  refresh_expire_in?: number;
+  refresh_token_expire_in?: number;
   partner_id: number;
   shop_id: number;
   merchant_id: number;

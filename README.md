@@ -80,6 +80,37 @@ railway up
 - Reprocessar lucro/margem usando Shopee (server-side): `POST /api/shopee/reprocess-profit-from-shopee?days=30` (header `x-admin-secret`).
 - Ver status do job: `GET /api/shopee/reprocess-profit-from-shopee/status` (header `x-admin-secret`).
 
+### 🔐 Shopee — OAuth resiliente (tokens no banco + refresh automático)
+
+Para evitar o cenário comum de **refresh token expirar** e o sistema ficar dias sem sincronizar, o backend agora suporta:
+
+- Persistência de tokens no Postgres (tabela `shopee_tokens`) com **backup do token anterior**.
+- Persistência do último callback OAuth (tabela `shopee_oauth_callbacks`) para facilitar o fluxo de troca/exchange.
+- Script de refresh diário + endpoint de status.
+
+**Endpoints (admin, header `x-admin-secret`):**
+
+- Status de tokens: `GET /api/shopee/oauth/status` (alias: `GET /api/shopee/token-status`)
+- URL de autorização: `GET /api/shopee/oauth/authorize-url`
+- Callback (Shopee redireciona aqui): `GET /api/shopee/oauth/callback`
+- Trocar code por tokens (e salvar no DB): `POST /api/shopee/oauth/exchange`
+- Refresh manual (e salvar no DB): `POST /api/shopee/oauth/refresh`
+
+**Job/Script:**
+
+- Rodar refresh manual: `cd backend && npm run shopee:refresh-token`
+- Habilitar refresh automático no servidor (padrão: a cada 3 horas):
+  - `SHOPEE_OAUTH_AUTO_REFRESH=true`
+  - (opcional) `SHOPEE_OAUTH_REFRESH_CRON="0 */3 * * *"`
+  - (opcional) `SHOPEE_OAUTH_IF_EXPIRING_IN_SEC=3600` (refresh quando access expira em < 1h)
+  - (opcional) `SHOPEE_OAUTH_FORCE_REFRESH_TOKEN_DAYS=5` (renova refresh token antes de expirar)
+
+**Notas operacionais:**
+
+- Por padrão, o backend tenta usar tokens do DB primeiro (`SHOPEE_TOKEN_USE_DB!=false`), com fallback para env vars.
+- Se `refreshTokenExpiresAt` não vier da Shopee, o campo pode ficar `null`; nesse caso o sistema mantém refresh frequente para evitar expiração.
+- Reautorização normalmente é **apenas 1x** (como ERPs), mas pode ser necessária novamente se a Shopee revogar o app/permissões ou se o refresh token já tiver expirado.
+
 ### 🧑‍💼 Contatos de suporte
 
 - Suporte MLH: (preencher nome + WhatsApp/email)

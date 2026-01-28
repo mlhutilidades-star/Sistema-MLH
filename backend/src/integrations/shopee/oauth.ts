@@ -13,6 +13,9 @@ export type ShopeeTokenResponse = {
   access_token: string;
   refresh_token: string;
   expire_in: number;
+  // Alguns retornos incluem expiração do refresh token.
+  refresh_expire_in?: number;
+  refresh_token_expire_in?: number;
   partner_id: number;
   shop_id: number;
   merchant_id?: number;
@@ -232,14 +235,14 @@ export async function refreshAccessToken(input: {
     };
 
     try {
-      // Endpoint mais comum (conforme doc v2): /auth/access_token/refresh
-      return await attempt('/api/v2/auth/access_token/refresh', '/auth/access_token/refresh');
+      // Doc v2 (refresh access token): /api/v2/auth/access_token/get
+      return await attempt('/api/v2/auth/access_token/get', '/auth/access_token/get');
     } catch (error) {
       const msg = extractAxiosErrorMessage(error).toLowerCase();
-      // Alguns ambientes retornam error_not_found para /refresh; fallback para /get.
+      // Alguns ambientes antigos podem expor /refresh; manter fallback.
       if (msg.includes('http 404') || msg.includes('error_not_found')) {
-        logger.warn('Shopee refresh endpoint not found; trying fallback /auth/access_token/get');
-        return await attempt('/api/v2/auth/access_token/get', '/auth/access_token/get');
+        logger.warn('Shopee access_token/get not found; trying fallback /auth/access_token/refresh');
+        return await attempt('/api/v2/auth/access_token/refresh', '/auth/access_token/refresh');
       }
       throw error;
     }

@@ -1,6 +1,7 @@
 import nodemailer from 'nodemailer';
 import { getPrismaClient } from '../../shared/database';
 import { logger } from '../../shared/logger';
+import { config } from '../../shared/config';
 
 export type AlertLevel = 'INFO' | 'WARN' | 'CRITICAL';
 export type AlertChannel = 'slack' | 'email';
@@ -220,6 +221,67 @@ export class AlertasService {
       }
     } catch (e) {
       logger.error('Falha ao calcular alerta de Ads', { error: e });
+    }
+
+    // 4) Shopee OAuth: refresh token expirando / erro recente
+    try {
+      const shopId = Number(config.shopee.shopId);
+      const configuredShopId = Number.isFinite(shopId) && shopId > 0 ? shopId : null;
+
+      const row = configuredShopId
+        ? await this.prisma.shopeeToken.findUnique({ where: { shopId: configuredShopId } })
+        : await this.prisma.shopeeToken.findFirst({ orderBy: { atualizadoEm: 'desc' } });
+
+      if (!row) {
+        const hasEnvTokens = !!process.env.SHOPEE_ACCESS_TOKEN && !!process.env.SHOPEE_REFRESH_TOKEN;
+        if (!hasEnvTokens) {
+          alerts.push({
+            code: 'SHOPEE_OAUTH_TOKENS_AUSENTES',
+            level: 'WARN',
+            title: 'Shopee OAuth sem tokens',
+            message:
+              'Nenhum token Shopee encontrado no DB e tokens em env vars ausentes. Integração Shopee pode falhar até completar o OAuth.',
+          });
+        }
+      } else {
+        const now = Date.now();
+        const refreshExp = row.refreshTokenExpiresAt ? row.refreshTokenExpiresAt.getTime() : null;
+        if (refreshExp && row.refreshTokenExpiresAt) {
+          const refreshTokenExpiresAtIso = row.refreshTokenExpiresAt.toISOString();
+          const daysLeft = Math.floor((refreshExp - now) / 86400000);
+          if (daysLeft < 0) {
+            alerts.push({
+              code: 'SHOPEE_OAUTH_REFRESH_EXPIRADO',
+              level: 'CRITICAL',
+              title: 'Shopee refresh token expirado',
+              message: `Refresh token expirado (dias restantes=${daysLeft}). Reautorize a Shopee para retomar a sincronização.`,
+              data: { shopId: row.shopId, refreshTokenExpiresAt: refreshTokenExpiresAtIso },
+            });
+          } else if (daysLeft < 7) {
+            alerts.push({
+              code: 'SHOPEE_OAUTH_REFRESH_EXPIRA_EM_BREVE',
+              level: 'WARN',
+              title: 'Shopee refresh token perto de expirar',
+              message: `Refresh token expira em ${daysLeft} dia(s). Recomenda-se reautorizar para evitar interrupções.`,
+              data: { shopId: row.shopId, refreshTokenExpiresAt: refreshTokenExpiresAtIso, daysLeft },
+            });
+          }
+        }
+
+        if (row.lastRefreshError) {
+          const lastAt = row.lastRefreshAt ? row.lastRefreshAt.getTime() : null;
+          const recent = lastAt ? now - lastAt < 24 * 3600 * 1000 : false;
+          alerts.push({
+            code: 'SHOPEE_OAUTH_REFRESH_FALHOU',
+            level: recent ? 'WARN' : 'INFO',
+            title: 'Shopee refresh com erro',
+            message: `Último refresh registrou erro${recent ? ' (últimas 24h)' : ''}: ${row.lastRefreshError}`,
+            data: { shopId: row.shopId, lastRefreshAt: row.lastRefreshAt?.toISOString() ?? null },
+          });
+        }
+      }
+    } catch (e) {
+      logger.error('Falha ao calcular alerta de Shopee OAuth', { error: e });
     }
 
     return alerts;

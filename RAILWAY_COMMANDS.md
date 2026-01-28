@@ -155,8 +155,13 @@ railway run npx prisma --version
 ### Prisma
 
 ```bash
-# Migrations
-railway run npx prisma db push
+## IMPORTANTE (Railway CLI)
+# `railway run` executa LOCALMENTE (só injeta variáveis). Se seu DATABASE_URL usa
+# host interno (ex.: *.railway.internal), ele NÃO vai conectar do seu PC.
+# Para rodar comandos que precisam acessar o Postgres interno, use `railway ssh`.
+
+# Migrations (rodar DENTRO do container em produção)
+railway ssh -s api-backend -- npx prisma db push
 
 # Pull schema
 railway run npx prisma db pull
@@ -167,11 +172,11 @@ railway run npx prisma db status
 # Studio (interface visual)
 railway run npx prisma studio
 
-# Generate client
-railway run npx prisma generate
+# Generate client (opcional)
+railway ssh -s api-backend -- npx prisma generate
 
 # Seed
-railway run npm run db:seed
+railway ssh -s api-backend -- npm run db:seed:prod
 ```
 
 ### PostgreSQL Direto
@@ -235,6 +240,31 @@ pwsh ./shopee-get-shop-id.ps1 -OpenBrowser
 # (Opcional) também seta `SHOPEE_SHOP_ID` no Railway via CLI
 pwsh ./shopee-get-shop-id.ps1 -SetRailwayVar
 ```
+
+### Shopee: OAuth (status + refresh)
+
+```bash
+# Ver status dos tokens (admin) - faça do seu PC (HTTP)
+curl -H "x-admin-secret: $OAUTH_ADMIN_SECRET" \
+  https://api-backend-production-af22.up.railway.app/api/shopee/oauth/status
+
+# Rodar refresh token manual (DENTRO do container)
+cd backend
+railway ssh -s api-backend -- npm run shopee:refresh-token:prod
+```
+
+### Shopee: rodar sync em produção (via SSH)
+
+```bash
+cd backend
+railway ssh -s api-backend -- npm run sync:prod -- --service=shopee --full-margin-calc --days=30
+```
+
+Variáveis recomendadas no Railway (serviço `api-backend`):
+
+- `SHOPEE_TOKEN_USE_DB=true` (default)
+- `SHOPEE_OAUTH_AUTO_REFRESH=true`
+- `SHOPEE_OAUTH_REFRESH_CRON=15 3 * * *` (opcional)
 
 ## 📦 GESTÃO DE DEPENDÊNCIAS
 

@@ -247,3 +247,51 @@ model MapeamentoSKU {
   @@map("mapeamento_sku")
   @@index([skuShopee])
 }
+
+// ==========================================
+// SHOPEE OAUTH - Persistência de tokens
+// Objetivo: evitar expiração silenciosa e permitir refresh automático.
+// ==========================================
+model ShopeeToken {
+  id                     String   @id @default(cuid())
+  shopId                 Int      @unique
+  partnerId              Int?
+
+  accessToken            String
+  accessTokenExpiresAt   DateTime?
+  refreshToken           String
+  refreshTokenExpiresAt  DateTime?
+
+  // Backup (token anterior) para fallback em caso de falha no refresh.
+  accessTokenBackup           String?
+  accessTokenBackupExpiresAt  DateTime?
+  refreshTokenBackup          String?
+  refreshTokenBackupExpiresAt DateTime?
+
+  lastRefreshAt          DateTime?
+  lastRefreshError       String?
+
+  criadoEm               DateTime @default(now())
+  atualizadoEm           DateTime @updatedAt
+
+  @@map("shopee_tokens")
+  @@index([atualizadoEm])
+}
+
+// ==========================================
+// SHOPEE OAUTH - Último callback recebido
+// Armazena code temporariamente para permitir troca/exchange via admin.
+// Após exchange com sucesso, o code deve ser limpo.
+// ==========================================
+model ShopeeOauthCallback {
+  id            String   @id @default(cuid())
+  shopId         Int?
+  mainAccountId  Int?
+  code           String? @db.Text
+  receivedAt     DateTime @default(now())
+  exchangedAt    DateTime?
+  exchangeError  String?
+
+  @@map("shopee_oauth_callbacks")
+  @@index([receivedAt])
+}

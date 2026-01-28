@@ -3,6 +3,15 @@ import { generateAuthorizationUrl } from '../../integrations/shopee/auth';
 import { exchangeCodeForTokens, refreshAccessToken, maskToken } from '../../integrations/shopee/oauth';
 import { ShopeeClient } from '../../integrations/shopee/client';
 import { spawn } from 'node:child_process';
+import { getPrismaClient } from '../../shared/database';
+import {
+  consumeLatestOauthCode,
+  getLatestOauthCallback,
+  markOauthExchangeResult,
+  resolveShopeeTokens,
+  saveOauthCallback,
+  upsertShopeeTokens,
+} from './tokenStore';
 
 const router = Router();
 
@@ -80,6 +89,20 @@ router.get('/oauth/callback', (req: Request, res: Response) => {
   latestCode = typeof code === 'string' && code.length > 0 ? code : null;
   latestMainAccountId = Number.isFinite(mainAccountId) ? (mainAccountId as number) : null;
 
+  // Persistência best-effort (não bloquear callback).
+  (async () => {
+    try {
+      const prisma = getPrismaClient();
+      await saveOauthCallback(prisma, {
+        shopId: Number.isFinite(shopId) ? (shopId as number) : undefined,
+        mainAccountId: Number.isFinite(mainAccountId) ? (mainAccountId as number) : undefined,
+        code: latestCode,
+      });
+    } catch {
+      // noop
+    }
+  })();
+
   // Não logar o code (sensível). Apenas sinalizar recebimento.
   res.json({
     success: true,
@@ -111,6 +134,20 @@ router.post('/oauth/callback', (req: Request, res: Response) => {
   latestCode = typeof code === 'string' && code.length > 0 ? code : null;
   latestMainAccountId = Number.isFinite(mainAccountId) ? (mainAccountId as number) : null;
 
+  // Persistência best-effort (não bloquear).
+  (async () => {
+    try {
+      const prisma = getPrismaClient();
+      await saveOauthCallback(prisma, {
+        shopId: Number.isFinite(shopId) ? (shopId as number) : undefined,
+        mainAccountId: Number.isFinite(mainAccountId) ? (mainAccountId as number) : undefined,
+        code: latestCode,
+      });
+    } catch {
+      // noop
+    }
+  })();
+
   res.json({
     success: true,
     receivedAt: latest.receivedAt,
@@ -120,38 +157,119 @@ router.post('/oauth/callback', (req: Request, res: Response) => {
   });
 });
 
-router.get('/oauth/last', (_req: Request, res: Response) => {
-  res.json({
-    success: true,
-    latest: latest
-      ? {
-          shopId: latest.shopId,
-          receivedAt: latest.receivedAt,
-          hasCode: !!latestCode,
-          hasMainAccountId: Number.isFinite(latestMainAccountId),
-        }
-      : null,
-  });
+router.get('/oauth/last', async (_req: Request, res: Response) => {
+  try {
+    const prisma = getPrismaClient();
+    const dbLatest = await getLatestOauthCallback(prisma);
+
+    res.json({
+      success: true,
+      latest: dbLatest
+        ? {
+            shopId: dbLatest.shopId ?? undefined,
+            receivedAt: dbLatest.receivedAt.toISOString(),
+            hasCode: dbLatest.hasCode,
+            hasMainAccountId: Number.isFinite(dbLatest.mainAccountId),
+            source: 'db',
+            callbackId: dbLatest.id,
+          }
+        : latest
+          ? {
+              shopId: latest.shopId,
+              receivedAt: latest.receivedAt,
+              hasCode: !!latestCode,
+              hasMainAccountId: Number.isFinite(latestMainAccountId),
+              source: 'memory',
+            }
+          : null,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    res.status(500).json({ success: false, error: message });
+  }
+});
+
+// Status de OAuth/tokens (admin).
+async function handleTokenStatus(req: Request, res: Response): Promise<void> {
+  try {
+    requireAdmin(req);
+    const prisma = getPrismaClient();
+    const resolved = await resolveShopeeTokens(prisma);
+
+    const now = Date.now();
+    const accessExp = resolved.accessTokenExpiresAt ? resolved.accessTokenExpiresAt.getTime() : null;
+    const refreshExp = resolved.refreshTokenExpiresAt ? resolved.refreshTokenExpiresAt.getTime() : null;
+
+    const msToDays = (ms: number) => Math.floor(ms / 86400000);
+    const accessTokenDaysLeft = accessExp ? msToDays(accessExp - now) : null;
+    const refreshTokenDaysLeft = refreshExp ? msToDays(refreshExp - now) : null;
+
+    res.json({
+      success: true,
+      source: resolved.source,
+      shopId: resolved.shopId,
+      partnerId: resolved.partnerId,
+      accessTokenMasked: maskToken(resolved.accessToken || ''),
+      refreshTokenMasked: maskToken(resolved.refreshToken || ''),
+      accessTokenExpiresAt: resolved.accessTokenExpiresAt ? resolved.accessTokenExpiresAt.toISOString() : null,
+      refreshTokenExpiresAt: resolved.refreshTokenExpiresAt ? resolved.refreshTokenExpiresAt.toISOString() : null,
+      accessTokenDaysLeft,
+      refreshTokenDaysLeft,
+      refreshTokenWillExpireSoon:
+        typeof refreshTokenDaysLeft === 'number' ? refreshTokenDaysLeft >= 0 && refreshTokenDaysLeft < 7 : null,
+      autoRefreshEnabled: String(process.env.SHOPEE_OAUTH_AUTO_REFRESH || '').trim().toLowerCase() === 'true',
+      autoRefreshCron: String(process.env.SHOPEE_OAUTH_REFRESH_CRON || '0 */3 * * *').trim(),
+      ifExpiringInSec: Number(process.env.SHOPEE_OAUTH_IF_EXPIRING_IN_SEC || 3600),
+      forceRefreshTokenInDays: Number(process.env.SHOPEE_OAUTH_FORCE_REFRESH_TOKEN_DAYS || 5),
+      lastRefreshAt: resolved.lastRefreshAt ? resolved.lastRefreshAt.toISOString() : null,
+      lastRefreshError: resolved.lastRefreshError ?? null,
+      needsReauth:
+        resolved.source === 'none'
+          ? true
+          : typeof refreshTokenDaysLeft === 'number'
+            ? refreshTokenDaysLeft < 0
+            : false,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const status = message === 'Acesso negado' ? 403 : 400;
+    res.status(status).json({ success: false, error: message });
+  }
+}
+
+router.get('/oauth/status', (req: Request, res: Response) => {
+  void handleTokenStatus(req, res);
+});
+
+// Alias ERP-like: GET /api/shopee/token-status
+router.get('/token-status', (req: Request, res: Response) => {
+  void handleTokenStatus(req, res);
 });
 
 // Troca code por tokens. Protegido por header x-admin-secret.
 router.post('/oauth/exchange', async (req: Request, res: Response) => {
+  let callbackRowId: string | undefined;
   try {
     requireAdmin(req);
 
-    const code = typeof req.body?.code === 'string' ? (req.body.code as string) : latestCode;
-    const shopIdRaw = req.body?.shop_id ?? req.body?.shopId ?? latest?.shopId;
+    const prisma = getPrismaClient();
+
+    const callbackId = typeof req.body?.callbackId === 'string' ? String(req.body.callbackId) : undefined;
+    const codeFromBody = typeof req.body?.code === 'string' ? (req.body.code as string) : undefined;
+    const codeRow = !codeFromBody ? await consumeLatestOauthCode(prisma, { preferId: callbackId }) : null;
+    callbackRowId = codeRow?.id;
+    const code = codeFromBody ?? codeRow?.code ?? latestCode;
+
+    const shopIdRaw = req.body?.shop_id ?? req.body?.shopId ?? codeRow?.shopId ?? latest?.shopId;
     const shopId = typeof shopIdRaw === 'number' ? shopIdRaw : typeof shopIdRaw === 'string' ? Number(shopIdRaw) : undefined;
-    const mainAccountIdRaw = req.body?.main_account_id ?? req.body?.mainAccountId ?? latestMainAccountId;
+    const mainAccountIdRaw = req.body?.main_account_id ?? req.body?.mainAccountId ?? codeRow?.mainAccountId ?? latestMainAccountId;
     const mainAccountId = typeof mainAccountIdRaw === 'number'
       ? mainAccountIdRaw
       : typeof mainAccountIdRaw === 'string'
         ? Number(mainAccountIdRaw)
         : undefined;
 
-    if (!code) {
-      return res.status(400).json({ success: false, error: 'code ausente' });
-    }
+    if (!code) return res.status(400).json({ success: false, error: 'code ausente' });
 
     const hasShopId = typeof shopId === 'number' && Number.isFinite(shopId);
     const hasMainAccountId = typeof mainAccountId === 'number' && Number.isFinite(mainAccountId);
@@ -168,6 +286,21 @@ router.post('/oauth/exchange', async (req: Request, res: Response) => {
       mainAccountId: hasMainAccountId ? Number(mainAccountId) : undefined,
     });
 
+    await upsertShopeeTokens(prisma, {
+      shopId: tokens.shop_id,
+      partnerId: tokens.partner_id,
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token,
+      expireIn: tokens.expire_in,
+      refreshExpireIn: (tokens as any).refresh_expire_in ?? (tokens as any).refresh_token_expire_in,
+      lastRefreshAt: new Date(),
+      lastRefreshError: null,
+    });
+
+    if (callbackRowId) {
+      await markOauthExchangeResult(prisma, { id: callbackRowId, success: true });
+    }
+
     // Não logar tokens.
     res.json({
       success: true,
@@ -178,10 +311,19 @@ router.post('/oauth/exchange', async (req: Request, res: Response) => {
       refreshToken: tokens.refresh_token,
       accessTokenMasked: maskToken(tokens.access_token),
       refreshTokenMasked: maskToken(tokens.refresh_token),
-      note: 'Use o script/terminal para salvar SHOPEE_ACCESS_TOKEN e SHOPEE_REFRESH_TOKEN no Railway.',
+      stored: 'db',
+      note: 'Tokens foram persistidos no banco. Se você ainda usa tokens em env vars, atualize SHOPEE_ACCESS_TOKEN/SHOPEE_REFRESH_TOKEN também (opcional).',
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    if (callbackRowId) {
+      try {
+        const prisma = getPrismaClient();
+        await markOauthExchangeResult(prisma, { id: callbackRowId, success: false, error: message });
+      } catch {
+        // noop
+      }
+    }
     const status = message === 'Acesso negado' ? 403 : 400;
     res.status(status).json({ success: false, error: message });
   }
@@ -192,13 +334,16 @@ router.post('/oauth/refresh', async (req: Request, res: Response) => {
   try {
     requireAdmin(req);
 
+    const prisma = getPrismaClient();
+    const resolved = await resolveShopeeTokens(prisma);
+
     const refreshToken = typeof req.body?.refresh_token === 'string'
       ? (req.body.refresh_token as string)
       : typeof req.body?.refreshToken === 'string'
         ? (req.body.refreshToken as string)
-        : process.env.SHOPEE_REFRESH_TOKEN;
+        : resolved.refreshToken ?? process.env.SHOPEE_REFRESH_TOKEN;
 
-    const shopIdRaw = req.body?.shop_id ?? req.body?.shopId ?? process.env.SHOPEE_SHOP_ID;
+    const shopIdRaw = req.body?.shop_id ?? req.body?.shopId ?? resolved.shopId ?? process.env.SHOPEE_SHOP_ID;
     const shopId = typeof shopIdRaw === 'number' ? shopIdRaw : typeof shopIdRaw === 'string' ? Number(shopIdRaw) : undefined;
 
     if (!refreshToken) {
@@ -208,7 +353,28 @@ router.post('/oauth/refresh', async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'shop_id ausente' });
     }
 
-    const tokens = await refreshAccessToken({ refreshToken, shopId: Number(shopId) });
+    let tokens;
+    try {
+      tokens = await refreshAccessToken({ refreshToken, shopId: Number(shopId) });
+    } catch (e) {
+      const backup = resolved.backup?.refreshToken;
+      if (backup && backup !== refreshToken) {
+        tokens = await refreshAccessToken({ refreshToken: backup, shopId: Number(shopId) });
+      } else {
+        throw e;
+      }
+    }
+
+    await upsertShopeeTokens(prisma, {
+      shopId: tokens.shop_id,
+      partnerId: tokens.partner_id,
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token,
+      expireIn: tokens.expire_in,
+      refreshExpireIn: (tokens as any).refresh_expire_in ?? (tokens as any).refresh_token_expire_in,
+      lastRefreshAt: new Date(),
+      lastRefreshError: null,
+    });
 
     res.json({
       success: true,
@@ -219,6 +385,7 @@ router.post('/oauth/refresh', async (req: Request, res: Response) => {
       refreshToken: tokens.refresh_token,
       accessTokenMasked: maskToken(tokens.access_token),
       refreshTokenMasked: maskToken(tokens.refresh_token),
+      stored: 'db',
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -235,7 +402,9 @@ router.get('/orders/:orderSn/debug', async (req: Request, res: Response) => {
     const orderSn = String(req.params.orderSn || '').trim();
     if (!orderSn) return res.status(400).json({ success: false, error: 'orderSn ausente' });
 
-    const client = new ShopeeClient();
+    const prisma = getPrismaClient();
+    const resolved = await resolveShopeeTokens(prisma);
+    const client = new ShopeeClient(resolved.accessToken, resolved.refreshToken);
     const detail = await client.getOrderDetail([orderSn]);
     const order = detail.response?.order_list?.[0];
 

@@ -36,6 +36,26 @@
 	- `POST /api/shopee/reprocess-profit-from-shopee?days=30`
 	- `GET /api/shopee/reprocess-profit-from-shopee/status`
 
+## Shopee — OAuth auto-refresh (ERP-like)
+
+O backend suporta persistência de tokens no Postgres e refresh automático para evitar expiração silenciosa.
+
+- Persistência: tabela `shopee_tokens` (com backup do token anterior)
+- Callback OAuth: tabela `shopee_oauth_callbacks`
+- Refresh automático: cron no backend (padrão: a cada 3 horas) + lógica condicional
+  - refresh quando access token expira em < 1h (`SHOPEE_OAUTH_IF_EXPIRING_IN_SEC`, default 3600)
+  - e/ou quando refresh token entra na janela de risco (`SHOPEE_OAUTH_FORCE_REFRESH_TOKEN_DAYS`, default 5)
+
+### Endpoints admin (monitoramento)
+
+- Status: `GET /api/shopee/oauth/status` (alias: `GET /api/shopee/token-status`)
+- Trocar code por tokens (salva no DB): `POST /api/shopee/oauth/exchange`
+- Refresh manual (salva no DB): `POST /api/shopee/oauth/refresh`
+
+### Observação
+
+Reautorização normalmente é **1x** (como ERPs), mas pode ser necessária novamente se a Shopee revogar permissões/app ou se o refresh token já tiver expirado.
+
 ## Ressalvas (podem ser ativadas depois)
 - Notificações Slack: ⚠️ PENDENTE (webhook real pode ser configurado depois)
 - Email automático: ⚠️ PENDENTE (SMTP pode ser configurado depois)

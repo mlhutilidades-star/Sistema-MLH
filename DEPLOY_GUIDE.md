@@ -236,6 +236,11 @@ railway run npx prisma db push
 railway run npx prisma db status
 ```
 
+Notas:
+
+- Atualizações recentes adicionaram tabelas de OAuth Shopee (`shopee_tokens`, `shopee_oauth_callbacks`).
+- Se o backend subir mas endpoints de OAuth/token falharem, valide se o `db push` foi executado no serviço correto.
+
 ### 2️⃣ Seed de Dados
 
 ```bash

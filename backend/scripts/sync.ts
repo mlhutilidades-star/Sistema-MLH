@@ -8,6 +8,7 @@ import { logger } from '../src/shared/logger';
 import { connectDatabase, disconnectDatabase, getPrismaClient } from '../src/shared/database';
 import { LucroService } from '../src/modules/relatorios/lucroService';
 import { sleep } from '../src/shared/utils';
+import { resolveShopeeTokens } from '../src/modules/shopee/tokenStore';
 
 type SyncService = 'all' | 'tiny' | 'shopee';
 
@@ -106,10 +107,10 @@ async function syncProdutosCustoPorSkuShopee(options?: { onlySoldSkus?: boolean;
   const prisma = getPrismaClient();
   const tiny = new TinyClient();
 
-  const token = process.env.SHOPEE_ACCESS_TOKEN;
-  if (!token) throw new Error('SHOPEE_ACCESS_TOKEN não configurado');
+  const resolved = await resolveShopeeTokens(prisma);
+  if (!resolved.accessToken) throw new Error('Token Shopee ausente (DB/env)');
 
-  const shopee = new ShopeeClient(token);
+  const shopee = new ShopeeClient(resolved.accessToken, resolved.refreshToken);
 
   const onlySoldSkus = options?.onlySoldSkus ?? true;
   const refreshCosts = options?.refreshCosts ?? false;
@@ -428,10 +429,11 @@ async function syncCustosTinyOtimizado(options?: { refreshCosts?: boolean; lookb
 
 async function syncPedidosMargemShopee(options?: { days?: number }): Promise<{ pedidos: number; itens: number; custosAusentes: number }> {
   const prisma = getPrismaClient();
-  const token = process.env.SHOPEE_ACCESS_TOKEN;
-  if (!token) throw new Error('SHOPEE_ACCESS_TOKEN não configurado');
 
-  const shopee = new ShopeeClient(token);
+  const resolved = await resolveShopeeTokens(prisma);
+  if (!resolved.accessToken) throw new Error('Token Shopee ausente (DB/env)');
+
+  const shopee = new ShopeeClient(resolved.accessToken, resolved.refreshToken);
   const lucroService = new LucroService();
 
   const daysRaw = options?.days ?? parseNumberEnv('MARGIN_LOOKBACK_DAYS', 30);

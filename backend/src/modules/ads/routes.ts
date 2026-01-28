@@ -5,6 +5,8 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { AdsService } from './service';
 import { logger } from '../../shared/logger';
+import { getPrismaClient } from '../../shared/database';
+import { resolveShopeeTokens } from '../shopee/tokenStore';
 
 function requireAdmin(req: Request): void {
   const secret = process.env.OAUTH_ADMIN_SECRET;
@@ -31,10 +33,15 @@ class AdsController {
       }
 
       let token = accessToken as string | undefined;
+      let refreshToken: string | undefined;
       // Se não vier token no body, permitir apenas via admin-secret usando o token do servidor.
       if (!token) {
         requireAdmin(req);
-        token = process.env.SHOPEE_ACCESS_TOKEN;
+
+        const prisma = getPrismaClient();
+        const resolved = await resolveShopeeTokens(prisma);
+        token = resolved.accessToken ?? process.env.SHOPEE_ACCESS_TOKEN;
+        refreshToken = resolved.refreshToken ?? process.env.SHOPEE_REFRESH_TOKEN;
       }
 
       if (!token) {
@@ -44,7 +51,7 @@ class AdsController {
         });
       }
 
-      const service = new AdsService(token);
+      const service = new AdsService(token, refreshToken);
       const resultado = await service.syncAdsShopee(startDate, endDate);
 
       return res.json({ success: true, data: resultado });

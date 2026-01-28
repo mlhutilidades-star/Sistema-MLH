@@ -84,7 +84,9 @@ export function getConfigWarnings(): string[] {
       warnings.push('Credenciais Shopee não configuradas (integração Shopee desabilitada até configurar)');
     } else {
       if (!process.env.SHOPEE_ACCESS_TOKEN || !process.env.SHOPEE_REFRESH_TOKEN) {
-        warnings.push('Tokens Shopee ausentes (SHOPEE_ACCESS_TOKEN/SHOPEE_REFRESH_TOKEN); chamadas autenticadas podem falhar até completar OAuth');
+        warnings.push(
+          'Tokens Shopee ausentes em env vars (SHOPEE_ACCESS_TOKEN/SHOPEE_REFRESH_TOKEN). Se você estiver usando tokens no banco (SHOPEE_TOKEN_USE_DB!=false), ignore; caso contrário, complete o OAuth.'
+        );
       }
     }
   }

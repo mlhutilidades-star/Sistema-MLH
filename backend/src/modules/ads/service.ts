@@ -10,9 +10,9 @@ export class AdsService {
   private prisma = getPrismaClient();
   private shopeeClient?: ShopeeClient;
 
-  constructor(shopeeAccessToken?: string) {
+  constructor(shopeeAccessToken?: string, shopeeRefreshToken?: string) {
     if (shopeeAccessToken) {
-      this.shopeeClient = new ShopeeClient(shopeeAccessToken);
+      this.shopeeClient = new ShopeeClient(shopeeAccessToken, shopeeRefreshToken);
     }
   }
 

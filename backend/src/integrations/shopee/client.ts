@@ -126,6 +126,21 @@ export class ShopeeClient {
   }
 
   /**
+   * Força refresh de tokens usando refresh_token.
+   * Retorna os novos tokens (access/refresh) e também atualiza o estado interno do client.
+   */
+  async refreshAccessToken(): Promise<{ accessToken: string; refreshToken: string }> {
+    if (!this.refreshToken) throw new Error('SHOPEE_REFRESH_TOKEN não configurado');
+    const shopId = config.shopee.shopId;
+    if (!shopId || shopId <= 0) throw new Error('SHOPEE_SHOP_ID não configurado');
+
+    const tokens = await refreshAccessToken({ refreshToken: this.refreshToken, shopId });
+    this.accessToken = tokens.access_token;
+    this.refreshToken = tokens.refresh_token || this.refreshToken;
+    return { accessToken: this.accessToken, refreshToken: this.refreshToken };
+  }
+
+  /**
    * Enforçar rate limiting (1000 req/hour)
    */
   private async enforceRateLimit(): Promise<void> {
