@@ -62,6 +62,16 @@ function buildRedirectUrl(req: Request): string {
   return `${proto}://${host}/api/shopee/oauth/callback`;
 }
 
+function buildFrontendConfigUrl(): string {
+  const defaultBase =
+    String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production'
+      ? 'https://sistema-mlh-frontend-production.up.railway.app'
+      : 'http://localhost:5173';
+  const base = (process.env.FRONTEND_PUBLIC_URL || process.env.FRONTEND_URL || defaultBase).trim();
+  const normalized = base.endsWith('/') ? base.slice(0, -1) : base;
+  return `${normalized}/config`;
+}
+
 router.get('/oauth/authorize-url', (req: Request, res: Response) => {
   const redirectUrl = buildRedirectUrl(req);
   const url = generateAuthorizationUrl(redirectUrl);
@@ -103,15 +113,16 @@ router.get('/oauth/callback', (req: Request, res: Response) => {
     }
   })();
 
-  // Não logar o code (sensível). Apenas sinalizar recebimento.
-  res.json({
-    success: true,
-    receivedAt: latest.receivedAt,
-    shopId: latest.shopId,
-    hasCode: !!code,
-    hasMainAccountId: Number.isFinite(mainAccountId),
-    message: 'Callback Shopee recebido. Agora é possível configurar SHOPEE_SHOP_ID no Railway.',
-  });
+  // Fluxo Railway-friendly: redireciona o popup de volta pro frontend com o code.
+  // Observação: o frontend remove o parâmetro da URL após consumir.
+  res.setHeader('Cache-Control', 'no-store');
+  const frontendConfigUrl = buildFrontendConfigUrl();
+  const params = new URLSearchParams();
+  if (latestCode) params.set('shopee_code', latestCode);
+  if (Number.isFinite(shopId)) params.set('shop_id', String(shopId));
+  if (Number.isFinite(mainAccountId)) params.set('main_account_id', String(mainAccountId));
+  if (!latestCode) params.set('shopee_oauth_error', 'missing_code');
+  return res.redirect(302, `${frontendConfigUrl}?${params.toString()}`);
 });
 
 // Endpoint alternativo (para uso via terminal/script) que aceita JSON no body.

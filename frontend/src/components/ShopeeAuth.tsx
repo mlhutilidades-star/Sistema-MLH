@@ -66,6 +66,7 @@ export function ShopeeAuth({ adminSecretValue }: { adminSecretValue: string }) {
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
 
   const popupWatchRef = useRef<number | null>(null);
+  const handledCodeRef = useRef(false);
 
   const statusBadge = useMemo(() => statusLabel(status), [status]);
 
@@ -128,11 +129,12 @@ export function ShopeeAuth({ adminSecretValue }: { adminSecretValue: string }) {
     }
   }
 
-  async function exchangeCode() {
+  async function exchangeCode(code?: string) {
     setError(null);
     setBusy(true);
     try {
-      const { data } = await api.post<{ success: true } & ExchangeResponse>('/api/shopee/oauth/exchange', {});
+      const payload = code ? { code } : {};
+      const { data } = await api.post<{ success: true } & ExchangeResponse>('/api/shopee/oauth/exchange', payload);
       setExchangeInfo(data);
       await fetchStatus({ silent: true });
     } catch (e) {
@@ -177,6 +179,62 @@ export function ShopeeAuth({ adminSecretValue }: { adminSecretValue: string }) {
       popupWatchRef.current = null;
     };
   }, []);
+
+  // 1) Se o callback redirecionar o POPUP para /config?shopee_code=..., envie o code para a aba principal e feche.
+  // 2) Se o callback redirecionar a aba principal (sem popup), troque o code automaticamente.
+  useEffect(() => {
+    if (!hasAdmin) return;
+    if (handledCodeRef.current) return;
+
+    const url = new URL(window.location.href);
+    const code = url.searchParams.get('shopee_code');
+    const errorParam = url.searchParams.get('shopee_oauth_error');
+
+    if (errorParam) {
+      setError(`OAuth Shopee: ${errorParam}`);
+    }
+
+    if (!code) return;
+
+    handledCodeRef.current = true;
+
+    // Remover o code da URL o quanto antes.
+    url.searchParams.delete('shopee_code');
+    url.searchParams.delete('shop_id');
+    url.searchParams.delete('main_account_id');
+    url.searchParams.delete('shopee_oauth_error');
+    window.history.replaceState({}, '', url.toString());
+
+    // Se estamos no popup, enviar para o opener e fechar.
+    try {
+      if (window.opener && window.opener !== window) {
+        window.opener.postMessage({ type: 'shopee_oauth_code', code }, window.location.origin);
+        window.close();
+        return;
+      }
+    } catch {
+      // Se falhar, cai no fluxo direto.
+    }
+
+    void exchangeCode(code);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasAdmin]);
+
+  // Receber code via postMessage (quando o callback volta no popup).
+  useEffect(() => {
+    if (!hasAdmin) return;
+
+    function onMessage(evt: MessageEvent) {
+      if (evt.origin !== window.location.origin) return;
+      const data = evt.data as any;
+      if (!data || data.type !== 'shopee_oauth_code' || typeof data.code !== 'string') return;
+      void exchangeCode(data.code);
+    }
+
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasAdmin]);
 
   return (
     <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
@@ -280,7 +338,7 @@ export function ShopeeAuth({ adminSecretValue }: { adminSecretValue: string }) {
 
           <button
             className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 disabled:opacity-50"
-            onClick={exchangeCode}
+            onClick={() => exchangeCode()}
             disabled={!hasAdmin || busy}
           >
             Concluir autorização
