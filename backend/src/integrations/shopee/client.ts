@@ -186,6 +186,14 @@ export class ShopeeClient {
     return response;
   }
 
+  private isShopeeNotFoundError(error: unknown): boolean {
+    if (!axios.isAxiosError(error)) return false;
+    const status = error.response?.status;
+    const data: any = error.response?.data;
+    if (status === 404) return true;
+    return String(data?.error || '').toLowerCase() === 'error_not_found';
+  }
+
   /**
    * Buscar lista de produtos
    */
@@ -372,29 +380,49 @@ export class ShopeeClient {
     startDate: string,
     endDate: string
   ): Promise<ShopeeAdsReportResponse> {
-    try {
-      const path = '/ads/report/get_all_cpc_ads_daily_performance';
-      const url = buildShopeeUrl(
-        path,
-        {
-          start_date: startDate,
-          end_date: endDate,
-        },
-        this.accessToken
-      );
+    const candidates = [
+      '/ads/report/get_all_cpc_ads_daily_performance',
+      // Alguns ambientes usam nomes diferentes (sem o "_ads_")
+      '/ads/report/get_all_cpc_daily_performance',
+    ];
 
-      const response = await retryWithBackoff(
-        async () => {
-          const { data } = await this.client.get<ShopeeAdsReportResponse>(url);
-          return this.validateResponse(data);
-        },
-        config.shopee.maxRetries
-      );
+    for (const path of candidates) {
+      try {
+        const url = buildShopeeUrl(
+          path,
+          {
+            start_date: startDate,
+            end_date: endDate,
+          },
+          this.accessToken
+        );
 
-      return response;
-    } catch (error) {
-      this.handleShopeeError(error);
+        const response = await retryWithBackoff(
+          async () => {
+            const { data } = await this.client.get<ShopeeAdsReportResponse>(url);
+            return this.validateResponse(data);
+          },
+          config.shopee.maxRetries
+        );
+
+        return response;
+      } catch (error) {
+        if (this.isShopeeNotFoundError(error)) {
+          continue;
+        }
+        this.handleShopeeError(error);
+      }
     }
+
+    // Se a Shopee não expõe o endpoint de Ads neste ambiente/conta, retorna vazio.
+    return {
+      error: '',
+      message: 'ads_endpoint_not_found',
+      response: {
+        data: [],
+        total_count: 0,
+      } as any,
+    } as ShopeeAdsReportResponse;
   }
 
   async getAdsReport(input: { date_from: string; date_to: string }) {
