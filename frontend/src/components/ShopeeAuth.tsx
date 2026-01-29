@@ -100,7 +100,7 @@ export function ShopeeAuth({ adminSecretValue }: { adminSecretValue: string }) {
       const { data } = await api.get<{ success: true } & AuthorizeUrlResponse>('/api/shopee/oauth/authorize-url');
       setAuthorizeInfo({ redirectUrl: data.redirectUrl, url: data.url });
 
-      const popup = window.open(data.url, 'shopee_oauth', 'noopener,noreferrer,width=900,height=800');
+      const popup = window.open(data.url, 'shopee_oauth', 'width=900,height=800');
       if (!popup) {
         setAwaitingPopupClose(false);
         return;
