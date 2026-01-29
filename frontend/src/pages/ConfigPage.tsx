@@ -1,13 +1,97 @@
+import { useEffect, useState } from 'react';
 import { useLocalStorage } from '../hooks/useLocalStorage';
-import { getApiBaseUrl, getAdminSecret } from '../services/api';
+import { api, getApiBaseUrl, getAdminSecret } from '../services/api';
 import { ShopeeAuth } from '../components/ShopeeAuth';
+
+type AuthUiState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'success'; message: string }
+  | { status: 'error'; message: string };
 
 export function ConfigPage() {
   const apiBase = useLocalStorage('mlh_api_base_url', getApiBaseUrl());
   const adminSecret = useLocalStorage('mlh_admin_secret', getAdminSecret() || '');
 
+  const [shopeeAuthState, setShopeeAuthState] = useState<AuthUiState>({ status: 'idle' });
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const code = url.searchParams.get('shopee_code');
+    const shopId = url.searchParams.get('shop_id') || undefined;
+    const mainAccountId = url.searchParams.get('main_account_id') || undefined;
+
+    if (!code) return;
+
+    console.log('[Shopee OAuth] Callback recebido, code presente na URL');
+
+    // Sempre remover o code da URL (evita reprocessar em refresh/back).
+    url.searchParams.delete('shopee_code');
+    url.searchParams.delete('shop_id');
+    url.searchParams.delete('main_account_id');
+    url.searchParams.delete('shopee_oauth_error');
+    window.history.replaceState({}, '', url.toString());
+
+    // Se estamos no popup, mandar o code para a aba principal e fechar.
+    try {
+      if (window.opener && window.opener !== window) {
+        console.log('[Shopee OAuth] Popup detectado, enviando postMessage para opener');
+        window.opener.postMessage(
+          { type: 'SHOPEE_CODE', code, shop_id: shopId, main_account_id: mainAccountId },
+          window.location.origin,
+        );
+        console.log('[Shopee OAuth] postMessage enviado, fechando popup');
+        window.close();
+        return;
+      }
+    } catch (e) {
+      console.log('[Shopee OAuth] Falha ao usar opener/postMessage, seguindo fluxo direto', e);
+    }
+
+    // Caso (sem popup): processar na própria aba.
+    void (async () => {
+      try {
+        console.log('[Shopee OAuth] Exchange iniciado na aba principal');
+        setShopeeAuthState({ status: 'loading' });
+
+        const secret = (getAdminSecret() || '').trim();
+        if (!secret) {
+          throw new Error('Informe o OAUTH_ADMIN_SECRET para concluir a autorização.');
+        }
+
+        await api.post('/api/shopee/oauth/exchange', {
+          code,
+          shop_id: shopId,
+          main_account_id: mainAccountId,
+        });
+
+        console.log('[Shopee OAuth] Tokens salvos com sucesso');
+        setShopeeAuthState({ status: 'success', message: 'Autorizado! Tokens salvos com sucesso.' });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.log('[Shopee OAuth] Exchange falhou', err);
+        setShopeeAuthState({ status: 'error', message });
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <div className="grid gap-6">
+      {shopeeAuthState.status === 'loading' ? (
+        <div className="rounded-2xl bg-slate-900 p-4 text-sm font-semibold text-white shadow-sm">Autorizando Shopee…</div>
+      ) : null}
+      {shopeeAuthState.status === 'success' ? (
+        <div className="rounded-2xl bg-emerald-50 p-4 text-sm font-semibold text-emerald-900 shadow-sm">
+          {shopeeAuthState.message}
+        </div>
+      ) : null}
+      {shopeeAuthState.status === 'error' ? (
+        <div className="rounded-2xl bg-rose-50 p-4 text-sm font-semibold text-rose-900 shadow-sm">
+          Erro ao autorizar: {shopeeAuthState.message}
+        </div>
+      ) : null}
+
       <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
         <div className="text-base font-semibold">Conexão com API</div>
         <div className="mt-1 text-sm text-slate-600">Base URL do backend (Railway).</div>

@@ -66,7 +66,6 @@ export function ShopeeAuth({ adminSecretValue }: { adminSecretValue: string }) {
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
 
   const popupWatchRef = useRef<number | null>(null);
-  const handledCodeRef = useRef(false);
 
   const statusBadge = useMemo(() => statusLabel(status), [status]);
 
@@ -100,6 +99,8 @@ export function ShopeeAuth({ adminSecretValue }: { adminSecretValue: string }) {
       const { data } = await api.get<{ success: true } & AuthorizeUrlResponse>('/api/shopee/oauth/authorize-url');
       setAuthorizeInfo({ redirectUrl: data.redirectUrl, url: data.url });
 
+      console.log('[Shopee OAuth] Popup aberto');
+
       const popup = window.open(data.url, 'shopee_oauth', 'width=900,height=800');
       if (!popup) {
         setAwaitingPopupClose(false);
@@ -115,8 +116,7 @@ export function ShopeeAuth({ adminSecretValue }: { adminSecretValue: string }) {
             if (popupWatchRef.current) window.clearInterval(popupWatchRef.current);
             popupWatchRef.current = null;
             setAwaitingPopupClose(false);
-            // Tentativa automática de concluir (se o callback salvou code no backend)
-            void exchangeCode();
+            console.log('[Shopee OAuth] Popup fechado');
           }
         } catch {
           // noop
@@ -180,51 +180,6 @@ export function ShopeeAuth({ adminSecretValue }: { adminSecretValue: string }) {
     };
   }, []);
 
-  // 1) Se o callback redirecionar o POPUP para /config?shopee_code=..., envie o code para a aba principal e feche.
-  // 2) Se o callback redirecionar a aba principal (sem popup), troque o code automaticamente.
-  useEffect(() => {
-    if (!hasAdmin) return;
-    if (handledCodeRef.current) return;
-
-    const url = new URL(window.location.href);
-    const code = url.searchParams.get('shopee_code');
-    const shopId = url.searchParams.get('shop_id') || undefined;
-    const mainAccountId = url.searchParams.get('main_account_id') || undefined;
-    const errorParam = url.searchParams.get('shopee_oauth_error');
-
-    if (errorParam) {
-      setError(`OAuth Shopee: ${errorParam}`);
-    }
-
-    if (!code) return;
-
-    handledCodeRef.current = true;
-
-    // Remover o code da URL o quanto antes.
-    url.searchParams.delete('shopee_code');
-    url.searchParams.delete('shop_id');
-    url.searchParams.delete('main_account_id');
-    url.searchParams.delete('shopee_oauth_error');
-    window.history.replaceState({}, '', url.toString());
-
-    // Se estamos no popup, enviar para o opener e fechar.
-    try {
-      if (window.opener && window.opener !== window) {
-        window.opener.postMessage(
-          { type: 'shopee_oauth_code', code, shop_id: shopId, main_account_id: mainAccountId },
-          window.location.origin
-        );
-        window.close();
-        return;
-      }
-    } catch {
-      // Se falhar, cai no fluxo direto.
-    }
-
-    void exchangeCode({ code, shop_id: shopId, main_account_id: mainAccountId });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasAdmin]);
-
   // Receber code via postMessage (quando o callback volta no popup).
   useEffect(() => {
     if (!hasAdmin) return;
@@ -232,7 +187,9 @@ export function ShopeeAuth({ adminSecretValue }: { adminSecretValue: string }) {
     function onMessage(evt: MessageEvent) {
       if (evt.origin !== window.location.origin) return;
       const data = evt.data as any;
-      if (!data || data.type !== 'shopee_oauth_code' || typeof data.code !== 'string') return;
+      if (!data || data.type !== 'SHOPEE_CODE' || typeof data.code !== 'string') return;
+
+      console.log('[Shopee OAuth] Code recebido na aba principal');
       void exchangeCode({
         code: data.code,
         shop_id: typeof data.shop_id === 'string' ? data.shop_id : undefined,
