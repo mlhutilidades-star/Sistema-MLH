@@ -9,6 +9,7 @@ import { connectDatabase, disconnectDatabase, getPrismaClient } from '../src/sha
 import { LucroService } from '../src/modules/relatorios/lucroService';
 import { sleep } from '../src/shared/utils';
 import { resolveShopeeTokens } from '../src/modules/shopee/tokenStore';
+import { AdsService } from '../src/modules/ads/service';
 
 type SyncService = 'all' | 'tiny' | 'shopee';
 
@@ -44,6 +45,13 @@ function parseNumberArg(argv: string[], name: string): number | undefined {
   if (!raw) return undefined;
   const v = Number(raw);
   return Number.isFinite(v) ? v : undefined;
+}
+
+function formatDateYmd(d: Date): string {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 async function getSoldSkusFromDbLastDays(days: number): Promise<Map<string, string | null>> {
@@ -683,6 +691,7 @@ async function syncManual() {
   try {
     const argv = process.argv.slice(2);
     const service = parseServiceArg(argv);
+    const syncAds = hasFlag(argv, '--anuncios') || hasFlag(argv, '--ads');
     const refreshCosts = hasFlag(argv, '--refresh-costs') || hasFlag(argv, '--refreshCosts');
     const otimizado = hasFlag(argv, '--otimizado') || hasFlag(argv, '--optimized');
     const useMapping = hasFlag(argv, '--com-mapeamento') || hasFlag(argv, '--com-mapeamento-sku') || hasFlag(argv, '--with-mapping');
@@ -699,6 +708,25 @@ async function syncManual() {
 
     const shouldRunShopee = service === 'all' || service === 'shopee';
     const shouldRunTiny = service === 'all' || service === 'tiny';
+
+    // 0) Ads Shopee (consumo_ads + anuncios)
+    if (shouldRunShopee && syncAds) {
+      const prisma = getPrismaClient();
+      const resolved = await resolveShopeeTokens(prisma);
+      if (!resolved.accessToken) throw new Error('Token Shopee ausente (DB/env)');
+
+      const days = Math.max(1, Math.floor(daysOverride ?? 30));
+      const end = new Date();
+      const start = new Date(Date.now() - days * 86400 * 1000);
+
+      const startDate = formatDateYmd(start);
+      const endDate = formatDateYmd(end);
+
+      logger.info(`📣 Sync Shopee Ads: ${startDate} -> ${endDate}`);
+      const adsService = new AdsService(resolved.accessToken, resolved.refreshToken);
+      const r = await adsService.syncAdsShopee(startDate, endDate);
+      logger.info(`✅ Ads Shopee sincronizados: ${r.total} registros`);
+    }
 
 
     // 1) Custos Tiny (otimizado): quando rodar --service=tiny (ou flag --otimizado), usa SKUs vendidos do banco.
