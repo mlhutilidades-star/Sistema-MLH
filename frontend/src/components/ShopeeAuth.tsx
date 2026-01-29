@@ -66,6 +66,12 @@ export function ShopeeAuth({ adminSecretValue }: { adminSecretValue: string }) {
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
 
   const popupWatchRef = useRef<number | null>(null);
+  const exchangeInFlightRef = useRef(false);
+  const lastCodeUsedRef = useRef<string | null>(null);
+  const lastCodeReceivedAtRef = useRef<number | null>(null);
+
+  const [manualOpen, setManualOpen] = useState(false);
+  const [manualCode, setManualCode] = useState('');
 
   const statusBadge = useMemo(() => statusLabel(status), [status]);
 
@@ -133,13 +139,44 @@ export function ShopeeAuth({ adminSecretValue }: { adminSecretValue: string }) {
     setError(null);
     setBusy(true);
     try {
+      if (exchangeInFlightRef.current) {
+        console.log('[Shopee OAuth] Exchange ignorado: já em andamento');
+        return;
+      }
+
+      exchangeInFlightRef.current = true;
+
       const body = payload?.code ? payload : {};
-      const { data } = await api.post<{ success: true } & ExchangeResponse>('/api/shopee/oauth/exchange', body);
-      setExchangeInfo(data);
+      const codePrefix = typeof payload?.code === 'string' ? `${payload.code.slice(0, 10)}...` : '(sem code)';
+      console.log('[Shopee OAuth] Iniciando exchange com code:', codePrefix);
+
+      const res = await api.post<{ success: true } & ExchangeResponse>('/api/shopee/oauth/exchange', body);
+      console.log('[Shopee OAuth] Resposta do exchange:', res.status, res.data);
+      setExchangeInfo(res.data);
       await fetchStatus({ silent: true });
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const message = e instanceof Error ? e.message : String(e);
+      console.log('[Shopee OAuth] Erro no exchange:', e);
+
+      // Se o exchange duplicou (ex.: 2 chamadas quase simultâneas), a 2ª pode falhar com invalid_code.
+      // Nesses casos, tentar ler o status e, se tokens estiverem ativos, tratar como sucesso.
+      if (/invalid_code/i.test(message)) {
+        try {
+          const statusRes = await api.get<any>('/api/shopee/token-status');
+          if (statusRes?.data?.source && statusRes.data.source !== 'none' && statusRes.data.needsReauth === false) {
+            console.log('[Shopee OAuth] invalid_code mas tokens parecem ativos; marcando como sucesso');
+            setError(null);
+            await fetchStatus({ silent: true });
+            return;
+          }
+        } catch {
+          // noop
+        }
+      }
+
+      setError(message);
     } finally {
+      exchangeInFlightRef.current = false;
       setBusy(false);
     }
   }
@@ -189,9 +226,25 @@ export function ShopeeAuth({ adminSecretValue }: { adminSecretValue: string }) {
       const data = evt.data as any;
       if (!data || data.type !== 'SHOPEE_CODE' || typeof data.code !== 'string') return;
 
-      console.log('[Shopee OAuth] Code recebido na aba principal');
+      const code = String(data.code);
+      const codePrefix = `${code.slice(0, 10)}...`;
+      console.log('[Shopee OAuth] Code recebido:', codePrefix, `(len=${code.length})`);
+
+      if (exchangeInFlightRef.current) {
+        console.log('[Shopee OAuth] Ignorando code: exchange já em andamento');
+        return;
+      }
+
+      if (lastCodeUsedRef.current && lastCodeUsedRef.current === code) {
+        console.log('[Shopee OAuth] Ignorando code duplicado');
+        return;
+      }
+
+      lastCodeUsedRef.current = code;
+      lastCodeReceivedAtRef.current = Date.now();
+
       void exchangeCode({
-        code: data.code,
+        code,
         shop_id: typeof data.shop_id === 'string' ? data.shop_id : undefined,
         main_account_id: typeof data.main_account_id === 'string' ? data.main_account_id : undefined,
       });
@@ -289,8 +342,8 @@ export function ShopeeAuth({ adminSecretValue }: { adminSecretValue: string }) {
       <div className="mt-5 rounded-xl border border-slate-200 bg-white p-3">
         <div className="text-sm font-semibold text-slate-900">Autorizar / Reautorizar</div>
         <div className="mt-1 text-sm text-slate-600">
-          1) Clique em <span className="font-semibold">Autorizar Shopee</span> e conclua no popup. 2) Ao fechar o popup, o sistema tenta concluir automaticamente.
-          Se necessário, clique em <span className="font-semibold">Concluir autorização</span>.
+          1) Clique em <span className="font-semibold">Autorizar Shopee</span> e conclua no popup. 2) O popup fecha sozinho e a aba principal faz o exchange.
+          Se der erro, use o modo manual abaixo.
         </div>
 
         <div className="mt-3 flex flex-wrap gap-2">
@@ -304,10 +357,10 @@ export function ShopeeAuth({ adminSecretValue }: { adminSecretValue: string }) {
 
           <button
             className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 disabled:opacity-50"
-            onClick={() => exchangeCode()}
+            onClick={() => setManualOpen((v) => !v)}
             disabled={!hasAdmin || busy}
           >
-            Concluir autorização
+            {manualOpen ? 'Fechar modo manual' : 'Trocar code manualmente'}
           </button>
 
           <button
@@ -333,6 +386,38 @@ export function ShopeeAuth({ adminSecretValue }: { adminSecretValue: string }) {
         {exchangeInfo ? (
           <div className="mt-3 rounded-xl bg-emerald-50 p-3 text-xs text-emerald-900">
             Autorização concluída: access={exchangeInfo.accessTokenMasked} refresh={exchangeInfo.refreshTokenMasked}
+          </div>
+        ) : null}
+
+        {manualOpen ? (
+          <div className="mt-3 rounded-xl bg-slate-50 p-3">
+            <div className="text-xs text-slate-700">Cole o <span className="font-mono">code</span> do callback (uso único, expira rápido).</div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <input
+                className="min-w-[260px] flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-slate-900/20"
+                placeholder="Cole aqui o code"
+                value={manualCode}
+                onChange={(e) => setManualCode(e.target.value)}
+              />
+              <button
+                className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                disabled={!hasAdmin || busy || manualCode.trim().length < 10}
+                onClick={() => {
+                  const code = manualCode.trim();
+                  const ageMs = lastCodeReceivedAtRef.current ? Date.now() - lastCodeReceivedAtRef.current : null;
+                  if (typeof ageMs === 'number' && ageMs > 9 * 60_000) {
+                    setError('Code expirado (>= 9min). Clique em Autorizar Shopee e tente novamente.');
+                    return;
+                  }
+                  console.log('[Shopee OAuth] Exchange manual iniciado com code:', `${code.slice(0, 10)}...`, `(len=${code.length})`);
+                  lastCodeUsedRef.current = code;
+                  lastCodeReceivedAtRef.current = Date.now();
+                  void exchangeCode({ code });
+                }}
+              >
+                Enviar
+              </button>
+            </div>
           </div>
         ) : null}
       </div>

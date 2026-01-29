@@ -23,7 +23,29 @@ export function ConfigPage() {
 
     if (!code) return;
 
-    console.log('[Shopee OAuth] Callback recebido, code presente na URL');
+    const codePrefix = `${code.slice(0, 10)}...`;
+    const now = Date.now();
+    const usedKey = 'mlh_shopee_oauth_code_used';
+    const usedAtKey = 'mlh_shopee_oauth_code_used_at';
+    const alreadyUsed = sessionStorage.getItem(usedKey);
+    const alreadyUsedAtRaw = sessionStorage.getItem(usedAtKey);
+    const alreadyUsedAt = alreadyUsedAtRaw ? Number(alreadyUsedAtRaw) : null;
+
+    if (alreadyUsed === code) {
+      console.log('[Shopee OAuth] Code já foi processado nesta sessão; ignorando:', codePrefix);
+      return;
+    }
+
+    // Mark as seen/used early to avoid double-processing on fast reloads.
+    sessionStorage.setItem(usedKey, code);
+    sessionStorage.setItem(usedAtKey, String(now));
+
+    if (typeof alreadyUsedAt === 'number' && Number.isFinite(alreadyUsedAt) && now - alreadyUsedAt > 9 * 60_000) {
+      setShopeeAuthState({ status: 'error', message: 'Code expirado (>= 9min). Clique em Autorizar Shopee e tente novamente.' });
+      return;
+    }
+
+    console.log('[Shopee OAuth] Callback recebido, code:', codePrefix, `(len=${code.length})`);
 
     // Sempre remover o code da URL (evita reprocessar em refresh/back).
     url.searchParams.delete('shopee_code');
@@ -51,7 +73,7 @@ export function ConfigPage() {
     // Caso (sem popup): processar na própria aba.
     void (async () => {
       try {
-        console.log('[Shopee OAuth] Exchange iniciado na aba principal');
+        console.log('[Shopee OAuth] Iniciando exchange com code:', codePrefix);
         setShopeeAuthState({ status: 'loading' });
 
         const secret = (getAdminSecret() || '').trim();
@@ -59,17 +81,19 @@ export function ConfigPage() {
           throw new Error('Informe o OAUTH_ADMIN_SECRET para concluir a autorização.');
         }
 
-        await api.post('/api/shopee/oauth/exchange', {
+        const res = await api.post('/api/shopee/oauth/exchange', {
           code,
           shop_id: shopId,
           main_account_id: mainAccountId,
         });
 
+        console.log('[Shopee OAuth] Resposta do exchange:', res.status, res.data);
+
         console.log('[Shopee OAuth] Tokens salvos com sucesso');
         setShopeeAuthState({ status: 'success', message: 'Autorizado! Tokens salvos com sucesso.' });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        console.log('[Shopee OAuth] Exchange falhou', err);
+        console.log('[Shopee OAuth] Erro no exchange:', err);
         setShopeeAuthState({ status: 'error', message });
       }
     })();
