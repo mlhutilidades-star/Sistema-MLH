@@ -129,12 +129,12 @@ export function ShopeeAuth({ adminSecretValue }: { adminSecretValue: string }) {
     }
   }
 
-  async function exchangeCode(code?: string) {
+  async function exchangeCode(payload?: { code?: string; shop_id?: string; main_account_id?: string }) {
     setError(null);
     setBusy(true);
     try {
-      const payload = code ? { code } : {};
-      const { data } = await api.post<{ success: true } & ExchangeResponse>('/api/shopee/oauth/exchange', payload);
+      const body = payload?.code ? payload : {};
+      const { data } = await api.post<{ success: true } & ExchangeResponse>('/api/shopee/oauth/exchange', body);
       setExchangeInfo(data);
       await fetchStatus({ silent: true });
     } catch (e) {
@@ -188,6 +188,8 @@ export function ShopeeAuth({ adminSecretValue }: { adminSecretValue: string }) {
 
     const url = new URL(window.location.href);
     const code = url.searchParams.get('shopee_code');
+    const shopId = url.searchParams.get('shop_id') || undefined;
+    const mainAccountId = url.searchParams.get('main_account_id') || undefined;
     const errorParam = url.searchParams.get('shopee_oauth_error');
 
     if (errorParam) {
@@ -208,7 +210,10 @@ export function ShopeeAuth({ adminSecretValue }: { adminSecretValue: string }) {
     // Se estamos no popup, enviar para o opener e fechar.
     try {
       if (window.opener && window.opener !== window) {
-        window.opener.postMessage({ type: 'shopee_oauth_code', code }, window.location.origin);
+        window.opener.postMessage(
+          { type: 'shopee_oauth_code', code, shop_id: shopId, main_account_id: mainAccountId },
+          window.location.origin
+        );
         window.close();
         return;
       }
@@ -216,7 +221,7 @@ export function ShopeeAuth({ adminSecretValue }: { adminSecretValue: string }) {
       // Se falhar, cai no fluxo direto.
     }
 
-    void exchangeCode(code);
+    void exchangeCode({ code, shop_id: shopId, main_account_id: mainAccountId });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasAdmin]);
 
@@ -228,7 +233,11 @@ export function ShopeeAuth({ adminSecretValue }: { adminSecretValue: string }) {
       if (evt.origin !== window.location.origin) return;
       const data = evt.data as any;
       if (!data || data.type !== 'shopee_oauth_code' || typeof data.code !== 'string') return;
-      void exchangeCode(data.code);
+      void exchangeCode({
+        code: data.code,
+        shop_id: typeof data.shop_id === 'string' ? data.shop_id : undefined,
+        main_account_id: typeof data.main_account_id === 'string' ? data.main_account_id : undefined,
+      });
     }
 
     window.addEventListener('message', onMessage);
