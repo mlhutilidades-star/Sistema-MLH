@@ -136,8 +136,18 @@ export type AdsStatusResponse = {
 };
 
 export async function getAdsStatus() {
-  const res = await api.get<{ success: true; data: AdsStatusResponse }>('/api/ads/status');
-  return res.data.data;
+  const res = await api.get('/api/ads/status', {
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  const body: any = res.data;
+  if (!body || typeof body !== 'object' || body.success !== true || !body.data || typeof body.data !== 'object') {
+    throw new Error('Resposta inválida de /api/ads/status. Verifique a Base URL da API em /config.');
+  }
+
+  return body.data as AdsStatusResponse;
 }
 
 export type AnuncioCatalogo = {
@@ -170,8 +180,19 @@ export async function listAnunciosCatalogo(params?: {
   sku?: string;
   shopId?: number;
 }) {
-  const res = await api.get<AnunciosCatalogoListResponse>('/api/anuncios', { params });
-  return res.data;
+  const res = await api.get('/api/anuncios', {
+    params,
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  const body: any = res.data;
+  if (!body || typeof body !== 'object' || body.success !== true || !Array.isArray(body.data)) {
+    throw new Error('Resposta inválida de /api/anuncios. Verifique a Base URL da API em /config.');
+  }
+
+  return body as AnunciosCatalogoListResponse;
 }
 
 export async function listProdutos(params?: { ativo?: boolean; sku?: string; descricao?: string }) {
