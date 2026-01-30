@@ -151,4 +151,154 @@ router.get('/', async (req: Request, res: Response) => {
   res.json({ success: true, total, page, limit, data });
 });
 
+router.get('/:id/detalhes', async (req: Request, res: Response) => {
+  const prisma = getPrismaClient();
+  const id = String(req.params.id || '').trim();
+  if (!id) return res.status(400).json({ success: false, error: 'id inválido' });
+
+  const daysRaw = typeof req.query.days === 'string' ? Number(req.query.days) : NaN;
+  const days = Number.isFinite(daysRaw) && daysRaw > 0 ? Math.min(3650, Math.floor(daysRaw)) : 30;
+
+  const now = new Date();
+  const start = new Date(now.getTime() - days * 86400 * 1000);
+
+  const anuncio = await prisma.anuncioCatalogo.findUnique({
+    where: { id },
+    include: {
+      variacoes: { orderBy: [{ modelId: 'asc' as const }] },
+    },
+  });
+
+  if (!anuncio) return res.status(404).json({ success: false, error: 'Anúncio não encontrado' });
+
+  const skuParent = anuncio.sku ? String(anuncio.sku).trim() : '';
+  const skuVariacoes = (anuncio.variacoes || [])
+    .map((v) => String(v.sku || '').trim())
+    .filter(Boolean);
+
+  const skus = Array.from(new Set([skuParent, ...skuVariacoes].filter(Boolean)));
+
+  const items = skus.length
+    ? await prisma.pedidoItem.findMany({
+        where: {
+          sku: { in: skus },
+          pedido: {
+            data: { gte: start, lte: now },
+          },
+        },
+        select: {
+          pedidoId: true,
+          sku: true,
+          quantidade: true,
+          rendaLiquida: true,
+          custoTotal: true,
+          lucro: true,
+        },
+      })
+    : [];
+
+  const aggBySku = new Map<
+    string,
+    {
+      sku: string;
+      pedidos: Set<string>;
+      quantidade: number;
+      rendaLiquida: number;
+      custoTotal: number;
+      lucro: number;
+    }
+  >();
+
+  for (const it of items) {
+    const sku = String(it.sku || '').trim();
+    if (!sku) continue;
+
+    const cur =
+      aggBySku.get(sku) ||
+      {
+        sku,
+        pedidos: new Set<string>(),
+        quantidade: 0,
+        rendaLiquida: 0,
+        custoTotal: 0,
+        lucro: 0,
+      };
+
+    cur.pedidos.add(String(it.pedidoId));
+    cur.quantidade += Number(it.quantidade ?? 0) || 0;
+    cur.rendaLiquida += Number(it.rendaLiquida ?? 0) || 0;
+    cur.custoTotal += Number(it.custoTotal ?? 0) || 0;
+    cur.lucro += Number(it.lucro ?? 0) || 0;
+    aggBySku.set(sku, cur);
+  }
+
+  const porSku = Array.from(aggBySku.values())
+    .map((x) => {
+      const margem = x.rendaLiquida > 0 ? (x.lucro / x.rendaLiquida) * 100 : 0;
+      return {
+        sku: x.sku,
+        pedidos: x.pedidos.size,
+        quantidade: x.quantidade,
+        rendaLiquida: x.rendaLiquida,
+        custoTotal: x.custoTotal,
+        lucro: x.lucro,
+        margem,
+      };
+    })
+    .sort((a, b) => (b.rendaLiquida || 0) - (a.rendaLiquida || 0));
+
+  const totalPedidos = new Set(items.map((i) => String(i.pedidoId))).size;
+  const totalQuantidade = porSku.reduce((s, r) => s + (r.quantidade || 0), 0);
+  const totalRenda = porSku.reduce((s, r) => s + (r.rendaLiquida || 0), 0);
+  const totalCusto = porSku.reduce((s, r) => s + (r.custoTotal || 0), 0);
+  const totalLucro = porSku.reduce((s, r) => s + (r.lucro || 0), 0);
+  const totalMargem = totalRenda > 0 ? (totalLucro / totalRenda) * 100 : 0;
+
+  const variacoes = (anuncio.variacoes || []).map((v: any) => ({
+    id: v.id,
+    modelId: v.modelId ? String(v.modelId) : null,
+    sku: v.sku ?? null,
+    nome: v.nome ?? null,
+    preco: v.preco ?? null,
+    estoque: v.estoque ?? null,
+  }));
+
+  res.json({
+    success: true,
+    data: {
+      periodo: {
+        days,
+        start: start.toISOString(),
+        end: now.toISOString(),
+      },
+      anuncio: {
+        id: anuncio.id,
+        platform: anuncio.platform,
+        shopId: anuncio.shopId,
+        itemId: anuncio.itemId ? String(anuncio.itemId) : null,
+        sku: anuncio.sku ?? null,
+        nome: anuncio.nome,
+        imageUrl: (anuncio as any).imageUrl ?? null,
+        status: anuncio.status,
+        preco: anuncio.preco ?? null,
+        estoque: anuncio.estoque ?? null,
+        variacoes,
+      },
+      resumo: {
+        pedidos: totalPedidos,
+        quantidade: totalQuantidade,
+        rendaLiquida: totalRenda,
+        custoTotal: totalCusto,
+        lucro: totalLucro,
+        margem: totalMargem,
+      },
+      porSku,
+      observacoes: {
+        precisaSyncPedidos: porSku.length === 0,
+        skusConsiderados: skus,
+      },
+    },
+  });
+});
+
 export default router;

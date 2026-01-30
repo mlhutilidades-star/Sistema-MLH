@@ -6,6 +6,7 @@ import { DashboardPage } from './pages/DashboardPage';
 import { PedidosPage } from './pages/PedidosPage';
 import { ProdutosPage } from './pages/ProdutosPage';
 import { AnunciosPage } from './pages/AnunciosPage';
+import { AnuncioDetalhePage } from './pages/AnuncioDetalhePage';
 import { OtimizacaoPage } from './pages/OtimizacaoPage';
 import { ConfigPage } from './pages/ConfigPage';
 import { NotFoundPage } from './pages/NotFoundPage';
@@ -22,6 +23,7 @@ export default function App() {
           <Route path="/pedidos" element={<PedidosPage />} />
           <Route path="/produtos" element={<ProdutosPage />} />
           <Route path="/anuncios" element={<AnunciosPage />} />
+          <Route path="/anuncios/:id" element={<AnuncioDetalhePage />} />
           <Route path="/otimizacao" element={<OtimizacaoPage />} />
           <Route path="/config" element={<ConfigPage />} />
           <Route path="*" element={<NotFoundPage />} />

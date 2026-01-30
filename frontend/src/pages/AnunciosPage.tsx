@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { getAdsStatus, listAnunciosCatalogo, type AnuncioCatalogo } from '../services/endpoints';
 import { fmtDateTimeBR } from '../utils/dates';
@@ -263,16 +264,24 @@ export function AnunciosPage() {
 
                     <div className="mt-1 flex items-center justify-between gap-2">
                       <div className="text-xs text-slate-500">{r.platform} / shop {r.shopId}</div>
-                      {url ? (
-                        <a
-                          href={url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800"
+                      <div className="flex items-center gap-2">
+                        <Link
+                          to={`/anuncios/${r.id}`}
+                          className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                         >
-                          Ver na Shopee
-                        </a>
-                      ) : null}
+                          Detalhes
+                        </Link>
+                        {url ? (
+                          <a
+                            href={url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800"
+                          >
+                            Ver na Shopee
+                          </a>
+                        ) : null}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -346,16 +355,24 @@ export function AnunciosPage() {
                         <td className="px-4 py-3">{r.estoque == null ? '-' : r.estoque}</td>
                         <td className="px-4 py-3 text-slate-600">{fmtDateTimeBR(r.updatedAt)}</td>
                         <td className="px-4 py-3 text-right">
-                          {url ? (
-                            <a
-                              href={url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800"
+                          <div className="flex justify-end gap-2">
+                            <Link
+                              to={`/anuncios/${r.id}`}
+                              className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                             >
-                              Ver na Shopee
-                            </a>
-                          ) : null}
+                              Detalhes
+                            </Link>
+                            {url ? (
+                              <a
+                                href={url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800"
+                              >
+                                Ver na Shopee
+                              </a>
+                            ) : null}
+                          </div>
                         </td>
                       </tr>
                     );

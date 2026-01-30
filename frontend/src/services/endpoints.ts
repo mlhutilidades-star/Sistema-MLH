@@ -209,6 +209,48 @@ export async function listAnunciosCatalogo(params?: {
   return body as AnunciosCatalogoListResponse;
 }
 
+export type AnuncioDetalhesResponse = {
+  success: true;
+  data: {
+    periodo: { days: number; start: string; end: string };
+    anuncio: AnuncioCatalogo;
+    resumo: {
+      pedidos: number;
+      quantidade: number;
+      rendaLiquida: number;
+      custoTotal: number;
+      lucro: number;
+      margem: number;
+    };
+    porSku: Array<{
+      sku: string;
+      pedidos: number;
+      quantidade: number;
+      rendaLiquida: number;
+      custoTotal: number;
+      lucro: number;
+      margem: number;
+    }>;
+    observacoes: {
+      precisaSyncPedidos: boolean;
+      skusConsiderados: string[];
+    };
+  };
+};
+
+export async function getAnuncioDetalhes(id: string, params?: { days?: number }) {
+  const res = await api.get(`/api/anuncios/${encodeURIComponent(id)}/detalhes`, {
+    params,
+    headers: { Accept: 'application/json' },
+  });
+
+  const body: any = res.data;
+  if (!body || typeof body !== 'object' || body.success !== true || !body.data) {
+    throw new Error('Resposta inválida de /api/anuncios/:id/detalhes. Verifique a Base URL da API em /config.');
+  }
+  return body as AnuncioDetalhesResponse;
+}
+
 export async function listProdutos(params?: { ativo?: boolean; sku?: string; descricao?: string }) {
   const res = await api.get<ProdutosListResponse>('/api/produtos', { params });
   return res.data;
