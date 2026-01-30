@@ -66,6 +66,7 @@ export interface ShopeeItemDetailResponse {
       item_name: string;
       item_sku: string;
       item_status: string;
+      image?: string[];
       price_info: Array<{
         current_price: number;
         original_price: number;

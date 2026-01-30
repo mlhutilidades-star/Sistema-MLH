@@ -729,6 +729,9 @@ async function syncAnunciosCatalogoShopee(): Promise<{ total: number; normal: nu
         const sku = String(item.item_sku || '').trim() || null;
         const nome = String(item.item_name || '').trim() || sku || String(item.item_id);
 
+        const imageId = Array.isArray((item as any).image) && (item as any).image.length > 0 ? String((item as any).image[0]) : null;
+        const imageUrl = imageId ? `https://down-br.img.susercontent.com/file/${imageId}` : null;
+
         const rawStatus = String(item.item_status || '').trim();
         const statusFinal = rawStatus === 'NORMAL' ? 'ATIVO' : rawStatus === 'UNLIST' ? 'INATIVO' : rawStatus || st;
 
@@ -759,6 +762,7 @@ async function syncAnunciosCatalogoShopee(): Promise<{ total: number; normal: nu
             modelId: null,
             sku,
             nome,
+            imageUrl,
             status: statusFinal,
             preco,
             estoque,
@@ -766,6 +770,7 @@ async function syncAnunciosCatalogoShopee(): Promise<{ total: number; normal: nu
           update: {
             sku,
             nome,
+            imageUrl,
             status: statusFinal,
             preco,
             estoque,

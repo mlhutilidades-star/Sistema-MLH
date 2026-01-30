@@ -62,6 +62,28 @@ router.get('/', async (req: Request, res: Response) => {
   const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
   const itemId = parseBigIntParam(req.query.itemId ?? req.query.item_id);
 
+  const sort = typeof req.query.sort === 'string' ? req.query.sort.trim() : '';
+
+  const orderBy = (() => {
+    switch (sort) {
+      case 'updatedAt_asc':
+        return [{ updatedAt: 'asc' as const }];
+      case 'price_asc':
+        return [{ preco: 'asc' as const }, { updatedAt: 'desc' as const }];
+      case 'price_desc':
+        return [{ preco: 'desc' as const }, { updatedAt: 'desc' as const }];
+      case 'stock_desc':
+        return [{ estoque: 'desc' as const }, { updatedAt: 'desc' as const }];
+      case 'name_asc':
+        return [{ nome: 'asc' as const }, { updatedAt: 'desc' as const }];
+      case 'name_desc':
+        return [{ nome: 'desc' as const }, { updatedAt: 'desc' as const }];
+      case 'updatedAt_desc':
+      default:
+        return [{ updatedAt: 'desc' as const }];
+    }
+  })();
+
   const dataInicio = parseDate(req.query.dataInicio ?? req.query.startDate);
   const dataFim = parseDate(req.query.dataFim ?? req.query.endDate);
 
@@ -86,7 +108,7 @@ router.get('/', async (req: Request, res: Response) => {
     prisma.anuncioCatalogo.count({ where }),
     prisma.anuncioCatalogo.findMany({
       where,
-      orderBy: [{ updatedAt: 'desc' }],
+      orderBy,
       skip: Math.max(0, offset),
       take: limit,
     }),
@@ -100,6 +122,7 @@ router.get('/', async (req: Request, res: Response) => {
     modelId: r.modelId ? String(r.modelId) : null,
     sku: r.sku,
     nome: r.nome,
+    imageUrl: r.imageUrl ?? null,
     status: r.status,
     preco: r.preco,
     estoque: r.estoque,

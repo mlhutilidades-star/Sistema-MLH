@@ -158,6 +158,7 @@ export type AnuncioCatalogo = {
   modelId: string | null;
   sku: string | null;
   nome: string;
+  imageUrl?: string | null;
   status: string;
   preco: number | null;
   estoque: number | null;
@@ -179,6 +180,7 @@ export async function listAnunciosCatalogo(params?: {
   status?: string;
   sku?: string;
   shopId?: number;
+  sort?: string;
 }) {
   const res = await api.get('/api/anuncios', {
     params,
