@@ -27,6 +27,7 @@ export function AnunciosPage() {
   const [adsWarning, setAdsWarning] = useState<string | null>(null);
   const [view, setView] = useState<'grid' | 'list'>('grid');
   const [sort, setSort] = useState<string>('updatedAt_desc');
+  const [openVariacoes, setOpenVariacoes] = useState<Record<string, boolean>>({});
   const limit = 50;
 
   useEffect(() => {
@@ -182,6 +183,9 @@ export function AnunciosPage() {
             rows.map((r) => {
               const st = normalizeStatusForUI(r.status);
               const url = getShopeeProductUrl(r.shopId, r.itemId);
+              const variacoes = Array.isArray(r.variacoes) ? r.variacoes : [];
+              const hasVariacoes = variacoes.length > 0;
+              const isOpen = !!openVariacoes[r.id];
               return (
                 <div key={r.id} className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
                   <div className="relative aspect-square bg-slate-50">
@@ -220,6 +224,37 @@ export function AnunciosPage() {
                         <span className="text-slate-500">Item</span>
                         <span className="max-w-[70%] truncate font-mono text-slate-800">{r.itemId || '-'}</span>
                       </div>
+
+                      {hasVariacoes ? (
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-slate-500">Variações</span>
+                          <button
+                            type="button"
+                            className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-200"
+                            onClick={() => setOpenVariacoes((prev) => ({ ...prev, [r.id]: !prev[r.id] }))}
+                          >
+                            {isOpen ? 'Ocultar' : `Ver (${variacoes.length})`}
+                          </button>
+                        </div>
+                      ) : null}
+
+                      {hasVariacoes && isOpen ? (
+                        <div className="mt-1 grid gap-1 rounded-xl bg-slate-50 p-2">
+                          {variacoes.slice(0, 12).map((v) => (
+                            <div key={v.id} className="flex items-center justify-between gap-2">
+                              <span className="max-w-[55%] truncate font-mono text-slate-800" title={v.sku || v.nome || ''}>
+                                {v.sku || v.nome || `model ${v.modelId || '-'}`}
+                              </span>
+                              <span className="text-slate-600">Est: {v.estoque == null ? '-' : v.estoque}</span>
+                              <span className="text-slate-900">{v.preco == null ? '-' : formatBRL(v.preco)}</span>
+                            </div>
+                          ))}
+                          {variacoes.length > 12 ? (
+                            <div className="text-xs text-slate-500">+{variacoes.length - 12} variações…</div>
+                          ) : null}
+                        </div>
+                      ) : null}
+
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-slate-500">Atualizado</span>
                         <span className="text-slate-700">{fmtDateTimeBR(r.updatedAt)}</span>

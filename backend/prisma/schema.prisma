@@ -122,11 +122,32 @@ model AnuncioCatalogo {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  variacoes AnuncioVariacao[]
+
   @@map("anuncios")
   @@unique([platform, shopId, itemId])
   @@index([shopId])
   @@index([status])
   @@index([updatedAt])
+}
+
+model AnuncioVariacao {
+  id        String   @id @default(cuid())
+  anuncioId String   @map("anuncio_id")
+  modelId   BigInt   @map("model_id")
+  sku       String?
+  nome      String?
+  preco     Float?
+  estoque   Int?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  anuncio AnuncioCatalogo @relation(fields: [anuncioId], references: [id], onDelete: Cascade)
+
+  @@map("anuncio_variacoes")
+  @@unique([anuncioId, modelId])
+  @@index([anuncioId])
+  @@index([modelId])
 }
 
 // ==========================================

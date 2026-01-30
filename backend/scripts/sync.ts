@@ -705,6 +705,14 @@ async function syncAnunciosCatalogoShopee(): Promise<{ total: number; normal: nu
   const pageSize = 50;
   const statuses: Array<'NORMAL' | 'UNLIST'> = ['NORMAL', 'UNLIST'];
 
+  const fetchImagesDetail = String(process.env.SHOPEE_CATALOGO_FETCH_IMAGES_DETAIL ?? 'true').toLowerCase() !== 'false';
+  const fetchImagesDetailMax = parseNumberEnv('SHOPEE_CATALOGO_IMAGE_DETAIL_MAX', 250);
+  let fetchedDetailCount = 0;
+
+  const fetchModels = String(process.env.SHOPEE_CATALOGO_FETCH_MODELS ?? 'true').toLowerCase() !== 'false';
+  const fetchModelsMax = parseNumberEnv('SHOPEE_CATALOGO_MODEL_LIST_MAX', 400);
+  let fetchedModelsCount = 0;
+
   for (const st of statuses) {
     logger.info(`🧾 Sync catálogo Shopee (status=${st})...`);
     let offset = 0;
@@ -715,11 +723,18 @@ async function syncAnunciosCatalogoShopee(): Promise<{ total: number; normal: nu
       const page = await shopee.getItemList(offset, pageSize, st);
       pages++;
 
-      const itemIds = page.response?.item?.map((i) => i.item_id) || [];
+      const itemFromList = page.response?.item || [];
+      const itemIds = itemFromList.map((i) => i.item_id) || [];
       hasNextPage = !!page.response?.has_next_page;
       offset = page.response?.next_offset ?? 0;
 
       if (!itemIds.length) continue;
+
+      const listExtraById = new Map<number, any>();
+      for (const it of itemFromList as any[]) {
+        const id = Number((it as any).item_id);
+        if (Number.isFinite(id)) listExtraById.set(id, it);
+      }
 
       const details = await shopee.getItemBaseInfo(itemIds);
       const items = details.response?.item_list || [];
@@ -730,6 +745,8 @@ async function syncAnunciosCatalogoShopee(): Promise<{ total: number; normal: nu
         const nome = String(item.item_name || '').trim() || sku || String(item.item_id);
 
         const anyItem: any = item as any;
+        const listExtra: any = listExtraById.get(Number(item.item_id));
+
         const imageIdFromArray = Array.isArray(anyItem.image) && anyItem.image.length > 0 ? String(anyItem.image[0]) : null;
         const imageIdFromString = typeof anyItem.image === 'string' && anyItem.image.trim() ? String(anyItem.image).trim() : null;
         const imageUrlFromApi =
@@ -737,10 +754,49 @@ async function syncAnunciosCatalogoShopee(): Promise<{ total: number; normal: nu
           (Array.isArray(anyItem.image_info?.image_url_list) && typeof anyItem.image_info.image_url_list[0] === 'string' && anyItem.image_info.image_url_list[0]) ||
           null;
 
-        const imageId = imageIdFromArray || imageIdFromString;
-        const imageUrl =
+        const listImageIdFromArray = Array.isArray(listExtra?.image) && listExtra.image.length > 0 ? String(listExtra.image[0]) : null;
+        const listImageIdFromString = typeof listExtra?.image === 'string' && listExtra.image.trim() ? String(listExtra.image).trim() : null;
+        const listImageUrlFromApi =
+          (Array.isArray(listExtra?.image_url_list) && typeof listExtra.image_url_list[0] === 'string' && listExtra.image_url_list[0]) ||
+          (Array.isArray(listExtra?.image_info?.image_url_list) && typeof listExtra.image_info.image_url_list[0] === 'string' && listExtra.image_info.image_url_list[0]) ||
+          null;
+
+        const imageId = imageIdFromArray || imageIdFromString || listImageIdFromArray || listImageIdFromString;
+        let imageUrl =
           (typeof imageUrlFromApi === 'string' && imageUrlFromApi.startsWith('http') ? imageUrlFromApi : null) ||
+          (typeof listImageUrlFromApi === 'string' && listImageUrlFromApi.startsWith('http') ? listImageUrlFromApi : null) ||
           (imageId ? `https://down-br.img.susercontent.com/file/${imageId}` : null);
+
+        // Fallback best-effort: busca detalhe completo para obter URLs de imagem
+        if (!imageUrl && fetchImagesDetail && fetchedDetailCount < fetchImagesDetailMax) {
+          try {
+            // Pequeno delay para reduzir chance de rate limit
+            await sleep(120);
+            const detail: any = await shopee.getItemDetail(Number(item.item_id));
+            const d0 = detail?.response?.item_list?.[0];
+
+            const detailUrl =
+              (Array.isArray(d0?.image?.image_url_list) && typeof d0.image.image_url_list[0] === 'string' && d0.image.image_url_list[0]) ||
+              (Array.isArray(d0?.image_info?.image_url_list) && typeof d0.image_info.image_url_list[0] === 'string' && d0.image_info.image_url_list[0]) ||
+              (Array.isArray(d0?.image_url_list) && typeof d0.image_url_list[0] === 'string' && d0.image_url_list[0]) ||
+              null;
+
+            const detailId =
+              (Array.isArray(d0?.image?.image_id_list) && d0.image.image_id_list.length > 0 ? String(d0.image.image_id_list[0]) : null) ||
+              (Array.isArray(d0?.image) && d0.image.length > 0 ? String(d0.image[0]) : null) ||
+              (typeof d0?.image === 'string' && d0.image.trim() ? String(d0.image).trim() : null) ||
+              null;
+
+            imageUrl =
+              (typeof detailUrl === 'string' && detailUrl.startsWith('http') ? detailUrl : null) ||
+              (detailId ? `https://down-br.img.susercontent.com/file/${detailId}` : null) ||
+              imageUrl;
+
+            fetchedDetailCount++;
+          } catch (e: any) {
+            // Mantém null se o endpoint não existir / falhar
+          }
+        }
 
         const rawStatus = String(item.item_status || '').trim();
         const statusFinal = rawStatus === 'NORMAL' ? 'ATIVO' : rawStatus === 'UNLIST' ? 'INATIVO' : rawStatus || st;
@@ -757,7 +813,7 @@ async function syncAnunciosCatalogoShopee(): Promise<{ total: number; normal: nu
         const currentStockRaw = Number(item.stock_info?.[0]?.current_stock ?? NaN);
         const estoque = Number.isFinite(currentStockRaw) ? Math.floor(currentStockRaw) : null;
 
-        await prisma.anuncioCatalogo.upsert({
+        const parent = await prisma.anuncioCatalogo.upsert({
           where: {
             platform_shopId_itemId: {
               platform: 'SHOPEE',
@@ -786,6 +842,112 @@ async function syncAnunciosCatalogoShopee(): Promise<{ total: number; normal: nu
             estoque,
           },
         });
+
+        // Variações (modelos) -> ficam dentro do anúncio
+        if (fetchModels && fetchedModelsCount < fetchModelsMax) {
+          try {
+            await sleep(120);
+            const modelRes: any = await shopee.getModelList(Number(item.item_id));
+            let models: any[] =
+              (Array.isArray(modelRes?.response?.model) && modelRes.response.model) ||
+              (Array.isArray(modelRes?.response?.model_list) && modelRes.response.model_list) ||
+              (Array.isArray(modelRes?.response?.model_list?.[0]?.model) && modelRes.response.model_list[0].model) ||
+              [];
+
+            if (!models.length) {
+              try {
+                const detail: any = await shopee.getItemDetail(Number(item.item_id));
+                const d0 = detail?.response?.item_list?.[0];
+                models =
+                  (Array.isArray(d0?.model_list) && d0.model_list) ||
+                  (Array.isArray(d0?.model) && d0.model) ||
+                  (Array.isArray(d0?.model_info?.model_list) && d0.model_info.model_list) ||
+                  [];
+              } catch {
+                // ignore
+              }
+            }
+
+            if (models.length) {
+              const seenModelIds: bigint[] = [];
+              for (const m of models) {
+                const rawModelId = (m as any).model_id ?? (m as any).modelid ?? (m as any).id;
+                if (rawModelId == null) continue;
+
+                let modelId: bigint;
+                try {
+                  modelId = BigInt(String(rawModelId));
+                } catch {
+                  continue;
+                }
+
+                const modelSku = String((m as any).model_sku ?? (m as any).sku ?? '').trim() || null;
+                const modelName = String((m as any).model_name ?? (m as any).name ?? '').trim() || null;
+
+                const priceRaw = Number(
+                  (m as any).price_info?.[0]?.current_price ??
+                    (m as any).price ??
+                    (m as any).current_price ??
+                    NaN
+                );
+                const modelPrice = Number.isFinite(priceRaw)
+                  ? Number.isInteger(priceRaw)
+                    ? priceRaw >= 1_000_000
+                      ? priceRaw / 100_000
+                      : priceRaw / 100
+                    : priceRaw
+                  : null;
+
+                const stockRaw = Number(
+                  (m as any).stock_info?.[0]?.current_stock ??
+                    (m as any).stock ??
+                    (m as any).current_stock ??
+                    NaN
+                );
+                const modelStock = Number.isFinite(stockRaw) ? Math.floor(stockRaw) : null;
+
+                await prisma.anuncioVariacao.upsert({
+                  where: {
+                    anuncioId_modelId: {
+                      anuncioId: parent.id,
+                      modelId,
+                    },
+                  },
+                  create: {
+                    anuncioId: parent.id,
+                    modelId,
+                    sku: modelSku,
+                    nome: modelName,
+                    preco: modelPrice,
+                    estoque: modelStock,
+                  },
+                  update: {
+                    sku: modelSku,
+                    nome: modelName,
+                    preco: modelPrice,
+                    estoque: modelStock,
+                  },
+                });
+
+                seenModelIds.push(modelId);
+              }
+
+              // Remove variações que não existem mais
+              if (seenModelIds.length) {
+                await prisma.anuncioVariacao.deleteMany({
+                  where: {
+                    anuncioId: parent.id,
+                    modelId: { notIn: seenModelIds },
+                  },
+                });
+              }
+
+              fetchedModelsCount++;
+            }
+          } catch (e: any) {
+            // best-effort: se o endpoint não existir/sem permissão, ignora
+          }
+        }
 
         total++;
         if (st === 'NORMAL') normal++;
@@ -836,10 +998,29 @@ async function syncManual() {
     const shouldRunShopee = service === 'all' || service === 'shopee';
     const shouldRunTiny = service === 'all' || service === 'tiny';
 
+    // Quando rodar apenas o catálogo (--anuncios), não deve seguir para fluxos pesados (pedidos/custos).
+    // Isso é usado no boot do backend em produção.
+    const isCatalogOnly =
+      shouldRunShopee &&
+      syncCatalogo &&
+      !syncAds &&
+      !fullMarginCalc &&
+      !refreshCosts &&
+      !otimizado &&
+      !useMapping &&
+      typeof daysOverride === 'undefined' &&
+      !shouldRunTiny;
+
     // 0) Catálogo Shopee (anuncios/listings) via Product API
     if (shouldRunShopee && syncCatalogo) {
       const r = await syncAnunciosCatalogoShopee();
       logger.info(`✅ Catálogo Shopee sincronizado: ${r.total} anúncios (ATIVO=${r.normal}, INATIVO=${r.unlist})`);
+
+      if (isCatalogOnly) {
+        logger.info('🏁 Encerrando: execução apenas de catálogo (--anuncios).');
+        await disconnectDatabase();
+        process.exit(0);
+      }
     }
 
     // 1) Ads Shopee (consumo_ads + anuncios_ads)

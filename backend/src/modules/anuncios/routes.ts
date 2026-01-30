@@ -63,6 +63,8 @@ router.get('/', async (req: Request, res: Response) => {
   const itemId = parseBigIntParam(req.query.itemId ?? req.query.item_id);
 
   const sort = typeof req.query.sort === 'string' ? req.query.sort.trim() : '';
+  const includeVariacoesRaw = typeof req.query.includeVariacoes === 'string' ? req.query.includeVariacoes.trim().toLowerCase() : '';
+  const includeVariacoes = includeVariacoesRaw === '1' || includeVariacoesRaw === 'true' || includeVariacoesRaw === 'yes';
 
   const orderBy = (() => {
     switch (sort) {
@@ -111,6 +113,13 @@ router.get('/', async (req: Request, res: Response) => {
       orderBy,
       skip: Math.max(0, offset),
       take: limit,
+      include: includeVariacoes
+        ? {
+            variacoes: {
+              orderBy: [{ modelId: 'asc' as const }],
+            },
+          }
+        : undefined,
     }),
   ]);
 
@@ -126,6 +135,16 @@ router.get('/', async (req: Request, res: Response) => {
     status: r.status,
     preco: r.preco,
     estoque: r.estoque,
+    variacoes: includeVariacoes
+      ? (r.variacoes || []).map((v: any) => ({
+          id: v.id,
+          modelId: v.modelId ? String(v.modelId) : null,
+          sku: v.sku ?? null,
+          nome: v.nome ?? null,
+          preco: v.preco ?? null,
+          estoque: v.estoque ?? null,
+        }))
+      : undefined,
     updatedAt: r.updatedAt.toISOString(),
   }));
 

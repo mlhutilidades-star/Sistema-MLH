@@ -265,6 +265,64 @@ export class ShopeeClient {
   }
 
   /**
+   * Buscar detalhe completo de um item (usado como fallback para obter imagens).
+   * Observação: alguns ambientes/contas podem não suportar este endpoint; tratar erro no caller.
+   */
+  async getItemDetail(itemId: number): Promise<any> {
+    try {
+      const path = '/product/get_item_detail';
+      const url = buildShopeeUrl(
+        path,
+        {
+          item_id: String(itemId),
+        },
+        this.accessToken
+      );
+
+      const response = await retryWithBackoff(
+        async () => {
+          const { data } = await this.client.get<any>(url);
+          return this.validateResponse(data);
+        },
+        config.shopee.maxRetries
+      );
+
+      return response;
+    } catch (error) {
+      this.handleShopeeError(error);
+    }
+  }
+
+  /**
+   * Buscar variações (modelos) de um item.
+   * Obs: a Shopee expõe esses dados via endpoint de modelos; o shape pode variar por ambiente.
+   */
+  async getModelList(itemId: number): Promise<any> {
+    try {
+      const path = '/product/get_model_list';
+      const url = buildShopeeUrl(
+        path,
+        {
+          item_id: String(itemId),
+        },
+        this.accessToken
+      );
+
+      const response = await retryWithBackoff(
+        async () => {
+          const { data } = await this.client.get<any>(url);
+          return this.validateResponse(data);
+        },
+        config.shopee.maxRetries
+      );
+
+      return response;
+    } catch (error) {
+      this.handleShopeeError(error);
+    }
+  }
+
+  /**
    * Buscar lista de pedidos
    */
   async getOrderList(

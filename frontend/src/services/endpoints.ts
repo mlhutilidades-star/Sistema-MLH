@@ -162,6 +162,14 @@ export type AnuncioCatalogo = {
   status: string;
   preco: number | null;
   estoque: number | null;
+  variacoes?: Array<{
+    id: string;
+    modelId: string | null;
+    sku: string | null;
+    nome: string | null;
+    preco: number | null;
+    estoque: number | null;
+  }>;
   updatedAt: string;
 };
 
@@ -181,9 +189,13 @@ export async function listAnunciosCatalogo(params?: {
   sku?: string;
   shopId?: number;
   sort?: string;
+  includeVariacoes?: boolean;
 }) {
   const res = await api.get('/api/anuncios', {
-    params,
+    params: {
+      includeVariacoes: true,
+      ...(params || {}),
+    },
     headers: {
       Accept: 'application/json',
     },
