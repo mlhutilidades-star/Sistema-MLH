@@ -128,6 +128,52 @@ export async function getAdsRelatorio(params: { dataInicio: string; dataFim: str
   return res.data.data;
 }
 
+export type AdsStatusResponse = {
+  available: boolean;
+  lastStatus: string | null;
+  lastMessage: string | null;
+  lastAt: string | null;
+};
+
+export async function getAdsStatus() {
+  const res = await api.get<{ success: true; data: AdsStatusResponse }>('/api/ads/status');
+  return res.data.data;
+}
+
+export type AnuncioCatalogo = {
+  id: string;
+  platform: string;
+  shopId: number;
+  itemId: string | null;
+  modelId: string | null;
+  sku: string | null;
+  nome: string;
+  status: string;
+  preco: number | null;
+  estoque: number | null;
+  updatedAt: string;
+};
+
+export type AnunciosCatalogoListResponse = {
+  success: true;
+  total: number;
+  page: number;
+  limit: number;
+  data: AnuncioCatalogo[];
+};
+
+export async function listAnunciosCatalogo(params?: {
+  page?: number;
+  limit?: number;
+  q?: string;
+  status?: string;
+  sku?: string;
+  shopId?: number;
+}) {
+  const res = await api.get<AnunciosCatalogoListResponse>('/api/anuncios', { params });
+  return res.data;
+}
+
 export async function listProdutos(params?: { ativo?: boolean; sku?: string; descricao?: string }) {
   const res = await api.get<ProdutosListResponse>('/api/produtos', { params });
   return res.data;

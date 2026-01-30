@@ -13,3 +13,9 @@ export function fmtDateBR(isoOrDate: string | Date): string {
   if (!Number.isFinite(d.getTime())) return '-';
   return format(d, 'dd/MM/yyyy');
 }
+
+export function fmtDateTimeBR(isoOrDate: string | Date): string {
+  const d = typeof isoOrDate === 'string' ? new Date(isoOrDate) : isoOrDate;
+  if (!Number.isFinite(d.getTime())) return '-';
+  return format(d, 'dd/MM/yyyy HH:mm');
+}

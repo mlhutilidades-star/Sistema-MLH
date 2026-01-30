@@ -230,7 +230,7 @@ async function main() {
           const lucro = rendaGerada - custoProdutos - gasto;
           const roi = gasto > 0 ? (lucro / gasto) * 100 : 0;
 
-          await prisma.anuncio.upsert({
+          await prisma.anuncioAds.upsert({
             where: { data_campanhaId: { data: c.data, campanhaId: c.campanhaId } },
             create: {
               data: c.data,

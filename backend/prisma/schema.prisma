@@ -82,10 +82,10 @@ model PedidoItem {
 }
 
 // ==========================================
-// ANUNCIOS - visão simples (por dia/campanha)
+// ANUNCIOS_ADS - visão simples (por dia/campanha)
 // Obs: sem atribuição direta, serve como agregação de gasto.
 // ==========================================
-model Anuncio {
+model AnuncioAds {
   id            String   @id @default(cuid())
   data          DateTime @db.Date
   campanhaId    String
@@ -98,9 +98,34 @@ model Anuncio {
   criadoEm      DateTime @default(now())
   atualizadoEm  DateTime @updatedAt
 
-  @@map("anuncios")
+  @@map("anuncios_ads")
   @@unique([data, campanhaId])
   @@index([data])
+}
+
+// ==========================================
+// ANUNCIOS - Catálogo (listings) Shopee
+// A página /anuncios deve consumir este catálogo, não Ads.
+// ==========================================
+model AnuncioCatalogo {
+  id        String   @id @default(cuid())
+  platform  String   @default("SHOPEE")
+  shopId    Int      @map("shop_id")
+  itemId    BigInt   @map("item_id")
+  modelId   BigInt?  @map("model_id")
+  sku       String?
+  nome      String
+  status    String
+  preco     Float?
+  estoque   Int?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("anuncios")
+  @@unique([platform, shopId, itemId])
+  @@index([shopId])
+  @@index([status])
+  @@index([updatedAt])
 }
 
 // ==========================================

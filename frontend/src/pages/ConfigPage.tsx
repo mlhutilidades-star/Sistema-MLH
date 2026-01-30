@@ -45,7 +45,21 @@ export function ConfigPage() {
       return;
     }
 
-    console.log('[Shopee OAuth] Callback recebido, code:', codePrefix, `(len=${code.length})`);
+    const hasOpener = (() => {
+      try {
+        return !!window.opener && window.opener !== window;
+      } catch {
+        return false;
+      }
+    })();
+    const isNamedPopup = String(window.name || '') === 'shopee_oauth';
+    const isPopup = hasOpener || isNamedPopup;
+
+    console.log('[Shopee OAuth] Callback recebido, code:', codePrefix, `(len=${code.length})`, {
+      hasOpener,
+      windowName: window.name,
+      isPopup,
+    });
 
     // Sempre remover o code da URL (evita reprocessar em refresh/back).
     url.searchParams.delete('shopee_code');
@@ -56,14 +70,31 @@ export function ConfigPage() {
 
     // Se estamos no popup, mandar o code para a aba principal e fechar.
     try {
-      if (window.opener && window.opener !== window) {
-        console.log('[Shopee OAuth] Popup detectado, enviando postMessage para opener');
-        window.opener.postMessage(
-          { type: 'SHOPEE_CODE', code, shop_id: shopId, main_account_id: mainAccountId },
-          window.location.origin,
-        );
-        console.log('[Shopee OAuth] postMessage enviado, fechando popup');
-        window.close();
+      if (isPopup) {
+        if (hasOpener) {
+          console.log('[Shopee OAuth] Popup detectado, enviando postMessage para opener');
+          window.opener!.postMessage(
+            { type: 'SHOPEE_CODE', code, shop_id: shopId, main_account_id: mainAccountId },
+            window.location.origin,
+          );
+          console.log('[Shopee OAuth] postMessage enviado');
+        } else {
+          console.log('[Shopee OAuth] Popup sem opener (provável política do navegador), tentando fechar mesmo assim');
+        }
+
+        setShopeeAuthState({ status: 'success', message: 'Autorização concluída. Você pode fechar esta janela.' });
+
+        // Alguns navegadores bloqueiam close em efeitos; tentar alguns retries.
+        const tryClose = () => {
+          try {
+            window.close();
+          } catch {
+            // noop
+          }
+        };
+        tryClose();
+        window.setTimeout(tryClose, 200);
+        window.setTimeout(tryClose, 800);
         return;
       }
     } catch (e) {

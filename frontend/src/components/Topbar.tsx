@@ -4,7 +4,7 @@ const titles: Record<string, { title: string; subtitle?: string }> = {
   '/dashboard': { title: 'Dashboard', subtitle: 'Visão rápida do negócio' },
   '/pedidos': { title: 'Pedidos', subtitle: 'Lucro e margem por pedido' },
   '/produtos': { title: 'Produtos', subtitle: 'Custos, margem e upload Tiny' },
-  '/anuncios': { title: 'Anúncios', subtitle: 'ROI/ROAS e performance' },
+  '/anuncios': { title: 'Anúncios', subtitle: 'Catálogo Shopee (listings)' },
   '/config': { title: 'Config', subtitle: 'API e credenciais admin' },
 };
 

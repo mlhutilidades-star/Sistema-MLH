@@ -26,11 +26,33 @@ export class AdsService {
 
     const startTime = Date.now();
     let total = 0;
+    let adsAvailable = true;
 
     try {
       loggers.sync.start('ADS', 'SHOPEE');
 
       const response = await this.shopeeClient.getAdsDailyPerformance(startDate, endDate);
+
+      if (String(response?.message || '') === 'ads_endpoint_not_found') {
+        adsAvailable = false;
+        const duracaoMs = Date.now() - startTime;
+
+        logger.warn('Ads indisponível: endpoint não encontrado (404) para esta conta/permissão');
+        loggers.sync.success('ADS', 'SHOPEE', 0, duracaoMs);
+
+        await this.prisma.logSync.create({
+          data: {
+            tipo: 'ADS',
+            status: 'PARCIAL',
+            origem: 'SHOPEE',
+            mensagem: 'Ads indisponível (endpoint não encontrado)',
+            registros: 0,
+            duracaoMs,
+          },
+        });
+
+        return { total: 0, adsAvailable };
+      }
 
       if (response.response.data) {
         for (const ad of response.response.data) {
@@ -81,7 +103,7 @@ export class AdsService {
           const lucro = rendaGerada - custoProdutos - gasto;
           const roi = gasto > 0 ? (lucro / gasto) * 100 : 0;
 
-          await this.prisma.anuncio.upsert({
+          await this.prisma.anuncioAds.upsert({
             where: {
               data_campanhaId: {
                 data: new Date(ad.date),
@@ -124,7 +146,7 @@ export class AdsService {
         },
       });
 
-      return { total };
+      return { total, adsAvailable };
     } catch (error) {
       loggers.sync.error('ADS', 'SHOPEE', error as Error);
       throw error;

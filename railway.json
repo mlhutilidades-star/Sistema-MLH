@@ -6,7 +6,7 @@
     "watchPatterns": ["backend/**", "Dockerfile", ".dockerignore", "railway.json"]
   },
   "deploy": {
-    "startCommand": "npm start",
+    "startCommand": "sh -c \"npx prisma migrate deploy && npm start\"",
     "healthcheckPath": "/health",
     "healthcheckTimeout": 300,
     "restartPolicyType": "ON_FAILURE",

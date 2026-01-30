@@ -216,6 +216,33 @@ railway run node scripts/test-integrations.js
 railway run node scripts/monitor-health.js
 ```
 
+## 🧾 CATÁLOGO SHOPEE (ANÚNCIOS)
+
+> A página `/anuncios` usa `GET /api/anuncios` (catálogo Shopee) e **não depende de Ads**.
+
+```bash
+# Rodar sync de catálogo (DENTRO do container em produção)
+railway ssh -s api-backend -- node dist/scripts/sync.js --service=shopee --anuncios --days=30
+
+# Testar endpoint
+curl "https://api-backend-production-af22.up.railway.app/api/anuncios?limit=5"
+
+# Status Ads (best-effort)
+curl "https://api-backend-production-af22.up.railway.app/api/ads/status"
+```
+
+### Postgres (queries rápidas)
+
+```bash
+# Abrir psql contra o Postgres do serviço (modo interativo)
+railway connect -s api-backend postgres
+
+# Queries
+SELECT COUNT(*) AS total_anuncios FROM anuncios;
+SELECT nome, sku, preco, estoque, status, updated_at FROM anuncios LIMIT 5;
+SELECT COUNT(*) AS total_ads FROM consumo_ads;
+```
+
 ### Health Checks
 
 ```bash

@@ -54,6 +54,19 @@ railway up
 - Healthcheck Frontend: OK
 - Alertas/Relatórios: habilitados (env vars), aguardando credenciais reais de Slack/Email
 
+### 🧾 Anúncios (Catálogo Shopee)
+
+A página `/anuncios` **não depende de Ads** (que pode retornar 404 dependendo da conta/permissão). Ela lista os anúncios reais (listings) do catálogo Shopee via **Product API**.
+
+- API: `GET /api/anuncios` (filtros: `q`, `status`, `sku`, `shopId`, `dataInicio`, `dataFim`, `page`, `limit`)
+- Sync (produção):
+
+```bash
+railway ssh -s api-backend -- node dist/scripts/sync.js --service=shopee --anuncios --days=30
+```
+
+Ads continua separado em `/api/ads/**` e o backend expõe `GET /api/ads/status` para avisar quando Ads estiver indisponível.
+
 ### ⏱️ Guia de primeiros passos (5 minutos)
 
 1. Acesse https://sistema-mlh-frontend-production.up.railway.app/config

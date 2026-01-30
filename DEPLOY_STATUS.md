@@ -18,6 +18,7 @@
 - Relatórios (PDF semanal): ✅ GERADO (distribuição automática opcional)
 - Automações semanais: ✅ HABILITADAS
 - UX Produtos: ✅ Removida exibição de preço de venda; custo é o único campo editável
+- Página Anúncios (catálogo Shopee): ✅ DESACOPLADA de Ads (usa Product API)
 
 ## Shopee — renda líquida (escrow) ✅
 
@@ -83,6 +84,25 @@ Reautorização normalmente é **1x** (como ERPs), mas pode ser necessária nova
 - `GET /health` frontend: OK
 - `GET /api/relatorios/lucro-total?dataInicio=YYYY-MM-DD&dataFim=YYYY-MM-DD`: OK
 - `triggerTestAlert`: falha esperada enquanto webhook/SMTP reais não forem configurados
+
+## Anúncios (Catálogo Shopee)
+
+- Fonte de verdade: **Product API** (catálogo/listings), não Ads.
+- Endpoint: `GET /api/anuncios` (retorna nome, sku/item_id, status, preço, estoque, updated_at).
+- Ads permanece separado em `/api/ads/**` e o sistema tolera 404 ("Ads indisponível").
+
+### Comandos úteis (produção)
+
+```bash
+# Sync catálogo Shopee (listings)
+railway ssh -s api-backend -- node dist/scripts/sync.js --service=shopee --anuncios --days=30
+
+# Verificar contagem no banco (via psql no container)
+railway ssh -s api-backend -- psql "$DATABASE_URL" -c "SELECT COUNT(*) AS total_anuncios FROM anuncios;"
+
+# Checar status Ads (best-effort)
+curl "https://api-backend-production-af22.up.railway.app/api/ads/status"
+```
 
 ## Comandos úteis (Railway)
 ```bash

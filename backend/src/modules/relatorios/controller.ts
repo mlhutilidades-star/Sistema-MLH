@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { getPrismaClient } from '../../shared/database';
-import type { Anuncio, Pedido } from '@prisma/client';
+import type { AnuncioAds as Anuncio, Pedido } from '@prisma/client';
 
 export class RelatoriosController {
   private prisma = getPrismaClient();
@@ -260,7 +260,7 @@ export class RelatoriosController {
 
   lucroAnuncios = async (_req: Request, res: Response, next: NextFunction) => {
     try {
-      const anuncios = await this.prisma.anuncio.findMany({
+      const anuncios = await this.prisma.anuncioAds.findMany({
         orderBy: { data: 'desc' },
         take: 60,
       });

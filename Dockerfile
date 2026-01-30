@@ -30,4 +30,4 @@ RUN npm prune --omit=dev && npm cache clean --force
 
 EXPOSE 3000
 
-CMD ["npm", "start"]
+CMD ["sh", "-c", "npx prisma migrate deploy && npm start"]

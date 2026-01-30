@@ -650,7 +650,7 @@ async function syncAnunciosFromConsumoAds(): Promise<{ total: number }> {
     const lucro = rendaGerada - custoProdutos - gasto;
     const roi = gasto > 0 ? (lucro / gasto) * 100 : 0;
 
-    await prisma.anuncio.upsert({
+    await prisma.anuncioAds.upsert({
       where: { data_campanhaId: { data: ad.data, campanhaId: ad.campanhaId } },
       create: {
         data: ad.data,
@@ -687,11 +687,123 @@ async function syncAnunciosFromConsumoAds(): Promise<{ total: number }> {
   return { total };
 }
 
+async function syncAnunciosCatalogoShopee(): Promise<{ total: number; normal: number; unlist: number }> {
+  const prisma = getPrismaClient();
+  const resolved = await resolveShopeeTokens(prisma);
+  if (!resolved.accessToken) throw new Error('Token Shopee ausente (DB/env)');
+  if (!resolved.shopId || !Number.isFinite(resolved.shopId) || resolved.shopId <= 0) {
+    throw new Error('SHOPEE_SHOP_ID não configurado (ou shopId ausente no tokenStore)');
+  }
+
+  const shopee = new ShopeeClient(resolved.accessToken, resolved.refreshToken);
+
+  const startTime = Date.now();
+  let total = 0;
+  let normal = 0;
+  let unlist = 0;
+
+  const pageSize = 50;
+  const statuses: Array<'NORMAL' | 'UNLIST'> = ['NORMAL', 'UNLIST'];
+
+  for (const st of statuses) {
+    logger.info(`🧾 Sync catálogo Shopee (status=${st})...`);
+    let offset = 0;
+    let hasNextPage = true;
+    let pages = 0;
+
+    while (hasNextPage) {
+      const page = await shopee.getItemList(offset, pageSize, st);
+      pages++;
+
+      const itemIds = page.response?.item?.map((i) => i.item_id) || [];
+      hasNextPage = !!page.response?.has_next_page;
+      offset = page.response?.next_offset ?? 0;
+
+      if (!itemIds.length) continue;
+
+      const details = await shopee.getItemBaseInfo(itemIds);
+      const items = details.response?.item_list || [];
+
+      for (const item of items) {
+        const itemId = BigInt(String(item.item_id));
+        const sku = String(item.item_sku || '').trim() || null;
+        const nome = String(item.item_name || '').trim() || sku || String(item.item_id);
+
+        const rawStatus = String(item.item_status || '').trim();
+        const statusFinal = rawStatus === 'NORMAL' ? 'ATIVO' : rawStatus === 'UNLIST' ? 'INATIVO' : rawStatus || st;
+
+        const currentPriceRaw = Number(item.price_info?.[0]?.current_price ?? NaN);
+        const preco = Number.isFinite(currentPriceRaw)
+          ? Number.isInteger(currentPriceRaw)
+            ? currentPriceRaw >= 1_000_000
+              ? currentPriceRaw / 100_000
+              : currentPriceRaw / 100
+            : currentPriceRaw
+          : null;
+
+        const currentStockRaw = Number(item.stock_info?.[0]?.current_stock ?? NaN);
+        const estoque = Number.isFinite(currentStockRaw) ? Math.floor(currentStockRaw) : null;
+
+        await prisma.anuncioCatalogo.upsert({
+          where: {
+            platform_shopId_itemId: {
+              platform: 'SHOPEE',
+              shopId: resolved.shopId,
+              itemId,
+            },
+          },
+          create: {
+            platform: 'SHOPEE',
+            shopId: resolved.shopId,
+            itemId,
+            modelId: null,
+            sku,
+            nome,
+            status: statusFinal,
+            preco,
+            estoque,
+          },
+          update: {
+            sku,
+            nome,
+            status: statusFinal,
+            preco,
+            estoque,
+          },
+        });
+
+        total++;
+        if (st === 'NORMAL') normal++;
+        if (st === 'UNLIST') unlist++;
+      }
+
+      if (pages % 10 === 0) {
+        logger.info(`📄 Páginas processadas (status=${st}): ${pages} | total=${total}`);
+      }
+    }
+  }
+
+  const duracaoMs = Date.now() - startTime;
+  await prisma.logSync.create({
+    data: {
+      tipo: 'ANUNCIOS_CATALOGO',
+      status: 'SUCESSO',
+      origem: 'SHOPEE',
+      mensagem: `Catálogo Shopee: ${total} anúncios (ATIVO=${normal}, INATIVO=${unlist})`,
+      registros: total,
+      duracaoMs,
+    },
+  });
+
+  return { total, normal, unlist };
+}
+
 async function syncManual() {
   try {
     const argv = process.argv.slice(2);
     const service = parseServiceArg(argv);
-    const syncAds = hasFlag(argv, '--anuncios') || hasFlag(argv, '--ads');
+    const syncCatalogo = hasFlag(argv, '--anuncios');
+    const syncAds = hasFlag(argv, '--ads');
     const refreshCosts = hasFlag(argv, '--refresh-costs') || hasFlag(argv, '--refreshCosts');
     const otimizado = hasFlag(argv, '--otimizado') || hasFlag(argv, '--optimized');
     const useMapping = hasFlag(argv, '--com-mapeamento') || hasFlag(argv, '--com-mapeamento-sku') || hasFlag(argv, '--with-mapping');
@@ -709,7 +821,13 @@ async function syncManual() {
     const shouldRunShopee = service === 'all' || service === 'shopee';
     const shouldRunTiny = service === 'all' || service === 'tiny';
 
-    // 0) Ads Shopee (consumo_ads + anuncios)
+    // 0) Catálogo Shopee (anuncios/listings) via Product API
+    if (shouldRunShopee && syncCatalogo) {
+      const r = await syncAnunciosCatalogoShopee();
+      logger.info(`✅ Catálogo Shopee sincronizado: ${r.total} anúncios (ATIVO=${r.normal}, INATIVO=${r.unlist})`);
+    }
+
+    // 1) Ads Shopee (consumo_ads + anuncios_ads)
     if (shouldRunShopee && syncAds) {
       const prisma = getPrismaClient();
       const resolved = await resolveShopeeTokens(prisma);
@@ -725,7 +843,11 @@ async function syncManual() {
       logger.info(`📣 Sync Shopee Ads: ${startDate} -> ${endDate}`);
       const adsService = new AdsService(resolved.accessToken, resolved.refreshToken);
       const r = await adsService.syncAdsShopee(startDate, endDate);
-      logger.info(`✅ Ads Shopee sincronizados: ${r.total} registros`);
+      if ((r as any).adsAvailable === false) {
+        logger.warn('⚠️  Ads indisponível neste ambiente/conta (endpoint não encontrado).');
+      } else {
+        logger.info(`✅ Ads Shopee sincronizados: ${r.total} registros`);
+      }
     }
 
 
@@ -756,9 +878,9 @@ async function syncManual() {
 
         try {
           const a = await syncAnunciosFromConsumoAds();
-          logger.info(`✅ Anúncios (derivado): ${a.total} registros`);
+          logger.info(`✅ Anúncios Ads (derivado): ${a.total} registros`);
         } catch (e) {
-          logger.warn('⚠️  Falha ao gerar relatório de anúncios (derivado).');
+          logger.warn('⚠️  Falha ao gerar relatório de anúncios Ads (derivado).');
         }
       } else {
         logger.info('ℹ️  Margem por pedido não calculada (use --full-margin-calc)');

@@ -197,7 +197,7 @@ export class ShopeeClient {
   /**
    * Buscar lista de produtos
    */
-  async getItemList(offset: number = 0, pageSize: number = 50): Promise<ShopeeItemListResponse> {
+  async getItemList(offset: number = 0, pageSize: number = 50, itemStatus: string = 'NORMAL'): Promise<ShopeeItemListResponse> {
     try {
       const path = '/product/get_item_list';
       const url = buildShopeeUrl(
@@ -205,7 +205,7 @@ export class ShopeeClient {
         {
           offset,
           page_size: pageSize,
-          item_status: 'NORMAL',
+          item_status: itemStatus,
         },
         this.accessToken
       );

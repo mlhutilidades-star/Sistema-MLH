@@ -91,6 +91,32 @@ class AdsController {
       next(error);
     }
   };
+
+  status = async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const prisma = getPrismaClient();
+      const last = await prisma.logSync.findFirst({
+        where: { tipo: 'ADS', origem: 'SHOPEE' },
+        orderBy: { criadoEm: 'desc' },
+        select: { status: true, mensagem: true, criadoEm: true },
+      });
+
+      const msg = String(last?.mensagem || '');
+      const available = !(msg.toLowerCase().includes('indisponível') || msg.toLowerCase().includes('endpoint'));
+
+      res.json({
+        success: true,
+        data: {
+          available,
+          lastStatus: last?.status || null,
+          lastMessage: last?.mensagem || null,
+          lastAt: last?.criadoEm ? last.criadoEm.toISOString() : null,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
 }
 
 const router = Router();
@@ -99,5 +125,6 @@ const controller = new AdsController();
 router.post('/sync', controller.syncAds);
 router.post('/ratear-custos', controller.ratearCustos);
 router.get('/relatorio', controller.relatorio);
+router.get('/status', controller.status);
 
 export default router;
