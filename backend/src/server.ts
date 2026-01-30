@@ -106,6 +106,32 @@ connectDatabase()
       logger.info('Shopee OAuth auto-refresh: desabilitado (SHOPEE_OAUTH_AUTO_REFRESH!=true)');
     }
 
+    // Shopee catálogo (anuncios/listings): sync best-effort no boot (para manter /anuncios igual ao catálogo da Shopee)
+    const catalogOnBoot = String(process.env.SHOPEE_CATALOGO_SYNC_ON_BOOT || 'true').trim().toLowerCase() !== 'false';
+    if (config.nodeEnv === 'production' && catalogOnBoot) {
+      const delayMsRaw = Number(process.env.SHOPEE_CATALOGO_SYNC_BOOT_DELAY_MS || 8000);
+      const delayMs = Number.isFinite(delayMsRaw) ? Math.max(0, Math.min(120000, Math.floor(delayMsRaw))) : 8000;
+      logger.info(`Shopee catálogo: sync no boot habilitado (delayMs=${delayMs})`);
+
+      setTimeout(() => {
+        try {
+          logger.info('Shopee catálogo: iniciando sync (script)');
+          const child = spawn('node', ['dist/scripts/sync.js', '--service=shopee', '--anuncios'], {
+            stdio: 'inherit',
+            env: process.env,
+            cwd: process.cwd(),
+          });
+          child.on('exit', (code) => {
+            logger.info('Shopee catálogo: sync finalizado', { code });
+          });
+        } catch (e) {
+          logger.warn('Shopee catálogo: falha ao iniciar sync', { error: e });
+        }
+      }, delayMs);
+    } else {
+      logger.info('Shopee catálogo: sync no boot desabilitado (NODE_ENV!=production ou SHOPEE_CATALOGO_SYNC_ON_BOOT=false)');
+    }
+
     // Automação semanal: recálculo e relatório
     const weeklyEnabled = String(process.env.WEEKLY_AUTOMATION_ENABLED || '').trim().toLowerCase() === 'true';
     if (weeklyEnabled) {

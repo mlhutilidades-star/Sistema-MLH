@@ -729,8 +729,18 @@ async function syncAnunciosCatalogoShopee(): Promise<{ total: number; normal: nu
         const sku = String(item.item_sku || '').trim() || null;
         const nome = String(item.item_name || '').trim() || sku || String(item.item_id);
 
-        const imageId = Array.isArray((item as any).image) && (item as any).image.length > 0 ? String((item as any).image[0]) : null;
-        const imageUrl = imageId ? `https://down-br.img.susercontent.com/file/${imageId}` : null;
+        const anyItem: any = item as any;
+        const imageIdFromArray = Array.isArray(anyItem.image) && anyItem.image.length > 0 ? String(anyItem.image[0]) : null;
+        const imageIdFromString = typeof anyItem.image === 'string' && anyItem.image.trim() ? String(anyItem.image).trim() : null;
+        const imageUrlFromApi =
+          (Array.isArray(anyItem.image_url_list) && typeof anyItem.image_url_list[0] === 'string' && anyItem.image_url_list[0]) ||
+          (Array.isArray(anyItem.image_info?.image_url_list) && typeof anyItem.image_info.image_url_list[0] === 'string' && anyItem.image_info.image_url_list[0]) ||
+          null;
+
+        const imageId = imageIdFromArray || imageIdFromString;
+        const imageUrl =
+          (typeof imageUrlFromApi === 'string' && imageUrlFromApi.startsWith('http') ? imageUrlFromApi : null) ||
+          (imageId ? `https://down-br.img.susercontent.com/file/${imageId}` : null);
 
         const rawStatus = String(item.item_status || '').trim();
         const statusFinal = rawStatus === 'NORMAL' ? 'ATIVO' : rawStatus === 'UNLIST' ? 'INATIVO' : rawStatus || st;
