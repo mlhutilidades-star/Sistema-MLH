@@ -1,12 +1,37 @@
 import axios from 'axios';
 
-const DEFAULT_API_BASE_URL = 'https://api-backend-production-af22.up.railway.app';
+export const DEFAULT_API_BASE_URL = 'https://api-backend-production-af22.up.railway.app';
+
+function normalizeBaseUrl(input: string): string | null {
+  const raw = String(input || '').trim();
+  if (!raw) return null;
+
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+
+    // Defensive: in production, ignore overrides that point back to the frontend itself.
+    // (Common misconfig: setting API base to the frontend URL, which will return 404/empty.)
+    const frontendHost = typeof window !== 'undefined' ? window.location.hostname : '';
+    if (frontendHost && u.hostname === frontendHost) return null;
+
+    // Also ignore localhost overrides when not running on localhost.
+    if (frontendHost && frontendHost !== 'localhost' && u.hostname === 'localhost') return null;
+
+    return u.toString().replace(/\/+$/, '');
+  } catch {
+    return null;
+  }
+}
 
 export function getApiBaseUrl(): string {
   const fromEnv = import.meta.env.VITE_API_BASE_URL as string | undefined;
-  const fromStorage = localStorage.getItem('mlh_api_base_url') || undefined;
-  const base = (fromEnv || fromStorage || DEFAULT_API_BASE_URL).trim();
-  return base.replace(/\/+$/, '');
+  const fromStorageRaw = localStorage.getItem('mlh_api_base_url') || undefined;
+
+  const envNormalized = fromEnv ? normalizeBaseUrl(fromEnv) : null;
+  const storageNormalized = fromStorageRaw ? normalizeBaseUrl(fromStorageRaw) : null;
+
+  return (envNormalized || storageNormalized || DEFAULT_API_BASE_URL).replace(/\/+$/, '');
 }
 
 export function getAdminSecret(): string | null {

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useLocalStorage } from '../hooks/useLocalStorage';
-import { api, getApiBaseUrl, getAdminSecret } from '../services/api';
+import { api, DEFAULT_API_BASE_URL, getApiBaseUrl, getAdminSecret } from '../services/api';
 import { ShopeeAuth } from '../components/ShopeeAuth';
 
 type AuthUiState =
@@ -159,7 +159,23 @@ export function ConfigPage() {
             value={apiBase.value}
             onChange={(e) => apiBase.setValue(e.target.value)}
           />
-          <div className="text-xs text-slate-500">Dica: deixe vazio para usar o padrão embutido.</div>
+          <div className="flex flex-wrap gap-2 pt-1">
+            <button
+              type="button"
+              className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-medium text-white"
+              onClick={() => apiBase.setValue(DEFAULT_API_BASE_URL)}
+            >
+              Usar backend produção
+            </button>
+            <button
+              type="button"
+              className="rounded-xl bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 ring-1 ring-slate-200"
+              onClick={() => apiBase.setValue('')}
+            >
+              Limpar (usar padrão)
+            </button>
+          </div>
+          <div className="text-xs text-slate-500">Dica: se /anúncios estiver vazio, confirme se a API está apontando para o backend correto.</div>
         </div>
       </div>
 
