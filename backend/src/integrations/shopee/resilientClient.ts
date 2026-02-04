@@ -36,10 +36,17 @@ class CircuitBreaker {
   private failures = 0;
   private openUntil = 0;
 
-  constructor(private threshold: number, private coolDownMs: number) {}
+  constructor(private threshold: number, private coolDownMs: number, private onClose?: () => void) {}
 
   isOpen(): boolean {
-    return Date.now() < this.openUntil;
+    const now = Date.now();
+    if (this.openUntil && now >= this.openUntil) {
+      this.openUntil = 0;
+      this.onClose?.();
+      logger.info('✅ Circuit breaker fechado (Shopee)');
+      return false;
+    }
+    return now < this.openUntil;
   }
 
   onSuccess(): void {
@@ -60,13 +67,16 @@ class RateLimiter {
   private last = 0;
   private queue = Promise.resolve();
 
-  constructor(private minIntervalMs: number) {}
+  constructor(private minIntervalMs: number, private onWait?: (waitMs: number) => void) {}
 
   schedule<T>(fn: () => Promise<T>): Promise<T> {
     const run = async () => {
       const now = Date.now();
       const wait = Math.max(0, this.last + this.minIntervalMs - now);
-      if (wait > 0) await sleep(wait);
+      if (wait > 0) {
+        this.onWait?.(wait);
+        await sleep(wait);
+      }
       this.last = Date.now();
       return fn();
     };
@@ -81,9 +91,9 @@ class RateLimiter {
 
   static perShop: Map<string, RateLimiter> = new Map();
 
-  static forShop(shopId: string, minIntervalMs: number): RateLimiter {
+  static forShop(shopId: string, minIntervalMs: number, onWait?: (waitMs: number) => void): RateLimiter {
     if (!this.perShop.has(shopId)) {
-      this.perShop.set(shopId, new RateLimiter(minIntervalMs));
+      this.perShop.set(shopId, new RateLimiter(minIntervalMs, onWait));
     }
     return this.perShop.get(shopId)!;
   }
@@ -110,15 +120,50 @@ type ExecOptions = {
 
 export class ResilientShopeeClient {
   private base: ShopeeClient;
-  private breaker = new CircuitBreaker(5, 30_000);
+  private breaker: CircuitBreaker;
   private cache = new MemoryCache();
   private limiter: RateLimiter;
   private metrics = new Map<string, { success: number; fail: number; totalTime: number }>();
+  private ops = 0;
+  private cacheHits = 0;
+  private cacheMisses = 0;
+  private rateLimitCount = 0;
+  private rateLimitWaitMs = 0;
+  private retryCount = 0;
+  private breakerOpenCount = 0;
+  private breakerCloseCount = 0;
 
   constructor(accessToken?: string, refreshToken?: string) {
     this.base = new ShopeeClient(accessToken, refreshToken);
     const shopId = String(config.shopee.shopId || 'global');
-    this.limiter = RateLimiter.forShop(shopId, 333);
+    this.breaker = new CircuitBreaker(5, 30_000, () => {
+      this.breakerCloseCount += 1;
+    });
+    this.limiter = RateLimiter.forShop(shopId, 333, (waitMs) => {
+      this.rateLimitCount += 1;
+      this.rateLimitWaitMs += waitMs;
+    });
+  }
+
+  private logResiliencyStats(): void {
+    this.ops += 1;
+    if (this.ops % 50 !== 0) return;
+
+    const cacheTotal = this.cacheHits + this.cacheMisses;
+    const cacheHitRate = cacheTotal ? this.cacheHits / cacheTotal : 0;
+    const avgRateWait = this.rateLimitCount ? this.rateLimitWaitMs / this.rateLimitCount : 0;
+
+    logger.info('📊 Shopee resiliency stats', {
+      ops: this.ops,
+      cacheHits: this.cacheHits,
+      cacheMisses: this.cacheMisses,
+      cacheHitRate: Number(cacheHitRate.toFixed(2)),
+      rateLimitCount: this.rateLimitCount,
+      avgRateLimitWaitMs: Math.round(avgRateWait),
+      retryCount: this.retryCount,
+      breakerOpenCount: this.breakerOpenCount,
+      breakerCloseCount: this.breakerCloseCount,
+    });
   }
 
   private track(endpoint: string, ok: boolean, ms: number) {
@@ -142,15 +187,23 @@ export class ResilientShopeeClient {
         logger.warn('⚠️ Shopee response time alto', { endpoint, avgMs: Math.round(avg) });
       }
     }
+
+    this.logResiliencyStats();
   }
 
   private async exec<T>(endpoint: string, fn: () => Promise<T>, opts?: ExecOptions): Promise<T> {
     if (opts?.cacheKey) {
       const cached = this.cache.get<T>(opts.cacheKey);
-      if (cached) return cached;
+      if (cached) {
+        this.cacheHits += 1;
+        this.logResiliencyStats();
+        return cached;
+      }
+      this.cacheMisses += 1;
     }
 
     if (this.breaker.isOpen()) {
+      this.breakerOpenCount += 1;
       throw new Error(`Circuit breaker aberto para Shopee (${endpoint})`);
     }
 
@@ -172,6 +225,7 @@ export class ResilientShopeeClient {
           if (!isRetryableError(err) || i === BACKOFF_DELAYS_MS.length - 1) {
             throw err;
           }
+          this.retryCount += 1;
         }
       }
 
