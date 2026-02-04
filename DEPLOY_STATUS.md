@@ -19,6 +19,7 @@
 - Automações semanais: ✅ HABILITADAS
 - UX Produtos: ✅ Removida exibição de preço de venda; custo é o único campo editável
 - Página Anúncios (catálogo Shopee): ✅ DESACOPLADA de Ads (usa Product API)
+- Página Anúncios (rentabilidade): ✅ SIMPLIFICADA (resumo no topo, tabela enxuta, detalhes por variação)
 
 ## Shopee — renda líquida (escrow) ✅
 
@@ -88,7 +89,8 @@ Reautorização normalmente é **1x** (como ERPs), mas pode ser necessária nova
 ## Anúncios (Catálogo Shopee)
 
 - Fonte de verdade: **Product API** (catálogo/listings), não Ads.
-- Endpoint: `GET /api/anuncios` (retorna nome, sku/item_id, status, preço, estoque, updated_at).
+- Endpoint (catálogo bruto): `GET /api/anuncios` (retorna nome, sku/item_id, status, preço, estoque, updated_at; opcional: variações).
+- Endpoint (rentabilidade): `GET /api/anuncios/rentabilidade` (consolida por `item_id`, calcula custo/lucro/margem estimados, resumo no topo e filtros rápidos).
 - Ads permanece separado em `/api/ads/**` e o sistema tolera 404 ("Ads indisponível").
 
 ### Comandos úteis (produção)

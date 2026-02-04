@@ -56,9 +56,16 @@ railway up
 
 ### 🧾 Anúncios (Catálogo Shopee)
 
-A página `/anuncios` **não depende de Ads** (que pode retornar 404 dependendo da conta/permissão). Ela lista os anúncios reais (listings) do catálogo Shopee via **Product API**.
+A página `/anuncios` **não depende de Ads** (que pode retornar 404 dependendo da conta/permissão). Ela mostra uma visão **consolidada por anúncio (`item_id`)** e focada em **rentabilidade**, agrupando variações (`model_id`).
 
-- API: `GET /api/anuncios` (filtros: `q`, `status`, `sku`, `shopId`, `dataInicio`, `dataFim`, `page`, `limit`)
+**UI simplificada (rentabilidade):**
+- Resumo no topo (anúncios ativos, estoque valorizado, lucro total, margem média, pendências de custo)
+- Tabela enxuta por anúncio (preço médio, estoque total, custo, lucro e margem)
+- Detalhes por clique com variações + edição de custo e mapeamento SKU Shopee → Tiny
+- Filtros rápidos (alta margem, baixo estoque, sem custo)
+
+- API (catálogo bruto): `GET /api/anuncios` (filtros: `q`, `status`, `sku`, `shopId`, `dataInicio`, `dataFim`, `page`, `limit`)
+- API (rentabilidade consolidada): `GET /api/anuncios/rentabilidade` (filtros: `status`, `margemMinima`, `estoqueMinimo`, `semCusto`, `page`, `limit`, `sort`)
 - Sync (produção):
 
 ```bash

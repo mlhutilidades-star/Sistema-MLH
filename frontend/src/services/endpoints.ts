@@ -181,6 +181,60 @@ export type AnunciosCatalogoListResponse = {
   data: AnuncioCatalogo[];
 };
 
+export type AnuncioRentabilidadeVariacao = {
+  id: string;
+  modelId: string | null;
+  sku: string | null;
+  nome: string | null;
+  preco: number | null;
+  estoque: number | null;
+  rendaEstimada: number;
+  codigoTiny: string | null;
+  custoUnitario: number;
+  custoStatus: string;
+  custoTotal: number;
+  lucro: number;
+  margem: number;
+};
+
+export type AnuncioRentabilidade = {
+  id: string;
+  platform: string;
+  shopId: number;
+  itemId: string | null;
+  sku: string | null;
+  nome: string;
+  imageUrl?: string | null;
+  status: string;
+  updatedAt: string;
+  totalVariacoes: number;
+  precoMedio: number;
+  estoqueTotal: number;
+  rendaTotal: number;
+  custoTotal: number;
+  lucroTotal: number;
+  margemMedia: number;
+  semCusto: boolean;
+  variacoes: AnuncioRentabilidadeVariacao[];
+};
+
+export type AnunciosRentabilidadeResponse = {
+  success: true;
+  total: number;
+  page: number;
+  limit: number;
+  resumo: {
+    totalAnuncios: number;
+    estoqueTotal: number;
+    rendaTotal: number;
+    custoTotal: number;
+    lucroTotal: number;
+    margemMedia: number;
+    semCusto: number;
+  };
+  data: AnuncioRentabilidade[];
+};
+
 export async function listAnunciosCatalogo(params?: {
   page?: number;
   limit?: number;
@@ -207,6 +261,30 @@ export async function listAnunciosCatalogo(params?: {
   }
 
   return body as AnunciosCatalogoListResponse;
+}
+
+export async function listAnunciosRentabilidade(params?: {
+  page?: number;
+  limit?: number;
+  q?: string;
+  status?: string;
+  shopId?: number;
+  margemMinima?: number;
+  estoqueMinimo?: number;
+  semCusto?: boolean;
+  sort?: string;
+}) {
+  const res = await api.get('/api/anuncios/rentabilidade', {
+    params: params || {},
+    headers: { Accept: 'application/json' },
+  });
+
+  const body: any = res.data;
+  if (!body || typeof body !== 'object' || body.success !== true || !Array.isArray(body.data)) {
+    throw new Error('Resposta inválida de /api/anuncios/rentabilidade. Verifique a Base URL da API em /config.');
+  }
+
+  return body as AnunciosRentabilidadeResponse;
 }
 
 export type AnuncioDetalhesResponse = {
@@ -266,6 +344,15 @@ export async function patchProdutoCusto(id: string, custoReal: number) {
     custoReal,
   });
   return res.data.data;
+}
+
+export async function addMapeamentoSku(params: { skuShopee: string; codigoTiny: string; atualizarCusto?: boolean }) {
+  const res = await api.post('/api/mapeamento/adicionar', {
+    skuShopee: params.skuShopee,
+    codigoTiny: params.codigoTiny,
+    atualizarCusto: params.atualizarCusto ?? true,
+  });
+  return res.data as { success: true; data: { mapping: { skuShopee: string; codigoTiny: string }; custoAtualizado: number | null } };
 }
 
 export async function previewPlanilha(file: File) {
