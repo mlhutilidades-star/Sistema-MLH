@@ -5,7 +5,7 @@
 import { getPrismaClient } from '../../shared/database';
 import { logger, loggers } from '../../shared/logger';
 import { TinyClient } from '../../integrations/tiny/client';
-import { ShopeeClient } from '../../integrations/shopee/client';
+import { ResilientShopeeClient } from '../../integrations/shopee/resilientClient';
 
 function envInt(name: string, fallback: number): number {
   const raw = String(process.env[name] ?? '').trim();
@@ -17,12 +17,12 @@ function envInt(name: string, fallback: number): number {
 export class ProdutoService {
   private prisma = getPrismaClient();
   private tinyClient: TinyClient;
-  private shopeeClient?: ShopeeClient;
+  private shopeeClient?: ResilientShopeeClient;
 
   constructor(shopeeAccessToken?: string) {
     this.tinyClient = new TinyClient();
     if (shopeeAccessToken) {
-      this.shopeeClient = new ShopeeClient(shopeeAccessToken);
+      this.shopeeClient = new ResilientShopeeClient(shopeeAccessToken);
     }
   }
 

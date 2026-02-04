@@ -3,7 +3,7 @@
 // ==========================================
 
 import { TinyClient } from '../src/integrations/tiny/client';
-import { ShopeeClient } from '../src/integrations/shopee/client';
+import { ResilientShopeeClient } from '../src/integrations/shopee/resilientClient';
 import { logger } from '../src/shared/logger';
 import { connectDatabase, disconnectDatabase, getPrismaClient } from '../src/shared/database';
 import { LucroService } from '../src/modules/relatorios/lucroService';
@@ -72,7 +72,7 @@ async function getSoldSkusFromDbLastDays(days: number): Promise<Map<string, stri
   return skuToName;
 }
 
-async function getSoldSkusFromShopeeLastDays(shopee: ShopeeClient, days: number): Promise<Map<string, string | null>> {
+async function getSoldSkusFromShopeeLastDays(shopee: ResilientShopeeClient, days: number): Promise<Map<string, string | null>> {
   const nowSec = Math.floor(Date.now() / 1000);
   const fromSec = nowSec - days * 86400;
   const windowSec = 14 * 86400;
@@ -118,7 +118,7 @@ async function syncProdutosCustoPorSkuShopee(options?: { onlySoldSkus?: boolean;
   const resolved = await resolveShopeeTokens(prisma);
   if (!resolved.accessToken) throw new Error('Token Shopee ausente (DB/env)');
 
-  const shopee = new ShopeeClient(resolved.accessToken, resolved.refreshToken);
+  const shopee = new ResilientShopeeClient(resolved.accessToken, resolved.refreshToken);
 
   const onlySoldSkus = options?.onlySoldSkus ?? true;
   const refreshCosts = options?.refreshCosts ?? false;
@@ -441,7 +441,7 @@ async function syncPedidosMargemShopee(options?: { days?: number }): Promise<{ p
   const resolved = await resolveShopeeTokens(prisma);
   if (!resolved.accessToken) throw new Error('Token Shopee ausente (DB/env)');
 
-  const shopee = new ShopeeClient(resolved.accessToken, resolved.refreshToken);
+  const shopee = new ResilientShopeeClient(resolved.accessToken, resolved.refreshToken);
   const lucroService = new LucroService();
 
   const daysRaw = options?.days ?? parseNumberEnv('MARGIN_LOOKBACK_DAYS', 30);
@@ -695,7 +695,7 @@ async function syncAnunciosCatalogoShopee(): Promise<{ total: number; normal: nu
     throw new Error('SHOPEE_SHOP_ID não configurado (ou shopId ausente no tokenStore)');
   }
 
-  const shopee = new ShopeeClient(resolved.accessToken, resolved.refreshToken);
+  const shopee = new ResilientShopeeClient(resolved.accessToken, resolved.refreshToken);
 
   const startTime = Date.now();
   let total = 0;
@@ -1043,7 +1043,6 @@ async function syncManual() {
       !refreshCosts &&
       !otimizado &&
       !useMapping &&
-      typeof daysOverride === 'undefined' &&
       !shouldRunTiny;
 
     // 0) Catálogo Shopee (anuncios/listings) via Product API

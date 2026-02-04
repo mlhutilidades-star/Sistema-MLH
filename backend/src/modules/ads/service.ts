@@ -4,15 +4,15 @@
 
 import { getPrismaClient } from '../../shared/database';
 import { logger, loggers } from '../../shared/logger';
-import { ShopeeClient } from '../../integrations/shopee/client';
+import { ResilientShopeeClient } from '../../integrations/shopee/resilientClient';
 
 export class AdsService {
   private prisma = getPrismaClient();
-  private shopeeClient?: ShopeeClient;
+  private shopeeClient?: ResilientShopeeClient;
 
   constructor(shopeeAccessToken?: string, shopeeRefreshToken?: string) {
     if (shopeeAccessToken) {
-      this.shopeeClient = new ShopeeClient(shopeeAccessToken, shopeeRefreshToken);
+      this.shopeeClient = new ResilientShopeeClient(shopeeAccessToken, shopeeRefreshToken);
     }
   }
 

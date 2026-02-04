@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { generateAuthorizationUrl } from '../../integrations/shopee/auth';
 import { exchangeCodeForTokens, refreshAccessToken, maskToken } from '../../integrations/shopee/oauth';
-import { ShopeeClient } from '../../integrations/shopee/client';
+import { ResilientShopeeClient } from '../../integrations/shopee/resilientClient';
 import { spawn } from 'node:child_process';
 import { getPrismaClient } from '../../shared/database';
 import { logger } from '../../shared/logger';
@@ -453,7 +453,7 @@ router.get('/orders/:orderSn/debug', async (req: Request, res: Response) => {
 
     const prisma = getPrismaClient();
     const resolved = await resolveShopeeTokens(prisma);
-    const client = new ShopeeClient(resolved.accessToken, resolved.refreshToken);
+    const client = new ResilientShopeeClient(resolved.accessToken, resolved.refreshToken);
     const detail = await client.getOrderDetail([orderSn]);
     const order = detail.response?.order_list?.[0];
 
