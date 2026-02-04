@@ -12,6 +12,7 @@ import {
 import { fmtDateTimeBR } from '../utils/dates';
 import { formatBRL, formatPct } from '../utils/format';
 import { Badge } from '../components/Badge';
+import { getApiBaseUrl } from '../services/api';
 
 function normalizeStatusForUI(status?: string | null) {
   const s = String(status || '').toUpperCase();
@@ -28,6 +29,7 @@ function getMarginClasses(margem: number) {
 
 export function AnunciosPage() {
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<AnuncioRentabilidade[]>([]);
   const [resumo, setResumo] = useState<{
     totalAnuncios: number;
@@ -55,11 +57,27 @@ export function AnunciosPage() {
   const [mappingInput, setMappingInput] = useState<Record<string, string>>({});
   const [mappingLoading, setMappingLoading] = useState<Record<string, boolean>>({});
 
+  const debugEnabled = useMemo(() => String(import.meta.env.VITE_DEBUG || '').toLowerCase() === 'true', []);
+
   const limit = 30;
 
   const fetchData = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
+      if (debugEnabled) {
+        console.log('[Anuncios] API base:', getApiBaseUrl());
+        console.log('[Anuncios] Query:', {
+          page,
+          limit,
+          q: q.trim() || undefined,
+          status: status || undefined,
+          sort,
+          margemMinima: margemMinima === '' ? undefined : Number(margemMinima),
+          estoqueMinimo: estoqueMinimo === '' ? undefined : Number(estoqueMinimo),
+          semCusto: semCusto ? true : undefined,
+        });
+      }
       const res = await listAnunciosRentabilidade({
         page,
         limit,
@@ -70,11 +88,16 @@ export function AnunciosPage() {
         estoqueMinimo: estoqueMinimo === '' ? undefined : Number(estoqueMinimo),
         semCusto: semCusto ? true : undefined,
       });
+      if (debugEnabled) {
+        console.log('[Anuncios] Response:', { total: res.total, count: res.data.length, resumo: res.resumo });
+      }
       setRows(res.data);
       setResumo(res.resumo);
       setTotal(res.total);
     } catch (e) {
-      toast.error((e as Error).message);
+      const message = e instanceof Error ? e.message : String(e);
+      setError(message);
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -263,6 +286,37 @@ export function AnunciosPage() {
 
   return (
     <div className="grid gap-6">
+      {error ? (
+        <div className="rounded-2xl bg-rose-50 p-4 text-sm text-rose-900 ring-1 ring-rose-200">
+          <div className="font-semibold">Falha ao carregar anúncios</div>
+          <div className="mt-1 text-xs text-rose-800">{error}</div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              className="rounded-xl bg-rose-700 px-3 py-1.5 text-xs font-semibold text-white"
+              onClick={() => fetchData()}
+              disabled={loading}
+            >
+              Recarregar
+            </button>
+            <button
+              className="rounded-xl border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-800"
+              onClick={() => {
+                setQ('');
+                setStatus('');
+                setMargemMinima('');
+                setEstoqueMinimo('');
+                setSemCusto(false);
+                setLowStockOnly(false);
+                setPage(1);
+                void fetchData();
+              }}
+              disabled={loading}
+            >
+              Limpar filtros
+            </button>
+          </div>
+        </div>
+      ) : null}
       <div className="grid gap-4 lg:grid-cols-12">
         <div className="lg:col-span-8 grid gap-4 md:grid-cols-2">
           <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
@@ -471,7 +525,32 @@ export function AnunciosPage() {
               ) : filteredRows.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
-                    Sem dados para o filtro atual.
+                    <div>Sem dados para o filtro atual.</div>
+                    <div className="mt-3 flex flex-wrap justify-center gap-2">
+                      <button
+                        className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700"
+                        onClick={() => fetchData()}
+                        disabled={loading}
+                      >
+                        Recarregar
+                      </button>
+                      <button
+                        className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
+                        onClick={() => {
+                          setQ('');
+                          setStatus('');
+                          setMargemMinima('');
+                          setEstoqueMinimo('');
+                          setSemCusto(false);
+                          setLowStockOnly(false);
+                          setPage(1);
+                          void fetchData();
+                        }}
+                        disabled={loading}
+                      >
+                        Mostrar todos
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ) : (

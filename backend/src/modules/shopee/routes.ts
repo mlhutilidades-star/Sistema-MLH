@@ -4,6 +4,7 @@ import { exchangeCodeForTokens, refreshAccessToken, maskToken } from '../../inte
 import { ShopeeClient } from '../../integrations/shopee/client';
 import { spawn } from 'node:child_process';
 import { getPrismaClient } from '../../shared/database';
+import { logger } from '../../shared/logger';
 import {
   consumeLatestOauthCode,
   getLatestOauthCallback,
@@ -72,6 +73,12 @@ function buildFrontendConfigUrl(): string {
   return `${normalized}/config`;
 }
 
+function maskCode(code?: string | null): string {
+  if (!code) return '-';
+  const raw = String(code);
+  return `${raw.slice(0, 6)}...(${raw.length})`;
+}
+
 router.get('/oauth/authorize-url', (req: Request, res: Response) => {
   const redirectUrl = buildRedirectUrl(req);
   const url = generateAuthorizationUrl(redirectUrl);
@@ -98,6 +105,13 @@ router.get('/oauth/callback', (req: Request, res: Response) => {
 
   latestCode = typeof code === 'string' && code.length > 0 ? code : null;
   latestMainAccountId = Number.isFinite(mainAccountId) ? (mainAccountId as number) : null;
+
+  logger.info('Shopee OAuth callback recebido', {
+    shopId: Number.isFinite(shopId) ? shopId : undefined,
+    mainAccountId: Number.isFinite(mainAccountId) ? mainAccountId : undefined,
+    code: maskCode(latestCode),
+    userAgent: req.get('user-agent') || undefined,
+  });
 
   // Persistência best-effort (não bloquear callback).
   (async () => {
@@ -144,6 +158,13 @@ router.post('/oauth/callback', (req: Request, res: Response) => {
 
   latestCode = typeof code === 'string' && code.length > 0 ? code : null;
   latestMainAccountId = Number.isFinite(mainAccountId) ? (mainAccountId as number) : null;
+
+  logger.info('Shopee OAuth callback (POST) recebido', {
+    shopId: Number.isFinite(shopId) ? shopId : undefined,
+    mainAccountId: Number.isFinite(mainAccountId) ? mainAccountId : undefined,
+    code: maskCode(latestCode),
+    userAgent: req.get('user-agent') || undefined,
+  });
 
   // Persistência best-effort (não bloquear).
   (async () => {
@@ -291,6 +312,13 @@ router.post('/oauth/exchange', async (req: Request, res: Response) => {
       });
     }
 
+    logger.info('Shopee OAuth exchange iniciado', {
+      shopId: hasShopId ? Number(shopId) : undefined,
+      mainAccountId: hasMainAccountId ? Number(mainAccountId) : undefined,
+      code: maskCode(code),
+      userAgent: req.get('user-agent') || undefined,
+    });
+
     const tokens = await exchangeCodeForTokens({
       code,
       shopId: hasShopId ? Number(shopId) : undefined,
@@ -312,6 +340,11 @@ router.post('/oauth/exchange', async (req: Request, res: Response) => {
       await markOauthExchangeResult(prisma, { id: callbackRowId, success: true });
     }
 
+    logger.info('Shopee OAuth exchange concluído', {
+      shopId: tokens.shop_id,
+      partnerId: tokens.partner_id,
+    });
+
     // Não logar tokens.
     res.json({
       success: true,
@@ -327,6 +360,11 @@ router.post('/oauth/exchange', async (req: Request, res: Response) => {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    logger.warn('Shopee OAuth exchange falhou', {
+      error: message,
+      callbackId: callbackRowId,
+      userAgent: req.get('user-agent') || undefined,
+    });
     if (callbackRowId) {
       try {
         const prisma = getPrismaClient();

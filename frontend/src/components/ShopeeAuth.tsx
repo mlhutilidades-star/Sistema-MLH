@@ -109,6 +109,7 @@ export function ShopeeAuth({ adminSecretValue }: { adminSecretValue: string }) {
 
       const popup = window.open(data.url, 'shopee_oauth', 'width=900,height=800');
       if (!popup) {
+        setError('Popup bloqueado pelo navegador. Use "Autorizar sem popup" ou abra a URL manualmente.');
         setAwaitingPopupClose(false);
         return;
       }
@@ -128,6 +129,24 @@ export function ShopeeAuth({ adminSecretValue }: { adminSecretValue: string }) {
           // noop
         }
       }, 600);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function openAuthorizeNoPopup() {
+    setError(null);
+    setBusy(true);
+    setExchangeInfo(null);
+
+    try {
+      const { data } = await api.get<{ success: true } & AuthorizeUrlResponse>('/api/shopee/oauth/authorize-url');
+      setAuthorizeInfo({ redirectUrl: data.redirectUrl, url: data.url });
+
+      console.log('[Shopee OAuth] Redirecionando na mesma aba');
+      window.location.href = data.url;
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -343,7 +362,7 @@ export function ShopeeAuth({ adminSecretValue }: { adminSecretValue: string }) {
         <div className="text-sm font-semibold text-slate-900">Autorizar / Reautorizar</div>
         <div className="mt-1 text-sm text-slate-600">
           1) Clique em <span className="font-semibold">Autorizar Shopee</span> e conclua no popup. 2) O popup fecha sozinho e a aba principal faz o exchange.
-          Se der erro, use o modo manual abaixo.
+          Se o popup for bloqueado, use <span className="font-semibold">Autorizar sem popup</span> ou o modo manual abaixo.
         </div>
 
         <div className="mt-3 flex flex-wrap gap-2">
@@ -353,6 +372,14 @@ export function ShopeeAuth({ adminSecretValue }: { adminSecretValue: string }) {
             disabled={!hasAdmin || busy}
           >
             {awaitingPopupClose ? 'Aguardando autorização…' : 'Autorizar Shopee'}
+          </button>
+
+          <button
+            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 disabled:opacity-50"
+            onClick={openAuthorizeNoPopup}
+            disabled={!hasAdmin || busy}
+          >
+            Autorizar sem popup
           </button>
 
           <button
