@@ -712,6 +712,20 @@ async function syncAnunciosCatalogoShopee(): Promise<{ total: number; normal: nu
   const fetchModels = String(process.env.SHOPEE_CATALOGO_FETCH_MODELS ?? 'true').toLowerCase() !== 'false';
   const fetchModelsMax = parseNumberEnv('SHOPEE_CATALOGO_MODEL_LIST_MAX', 400);
   let fetchedModelsCount = 0;
+  let notFoundCount = 0;
+  const notFoundItems: Array<{ itemId: string; stage: string }> = [];
+
+  function isNotFoundError(err: unknown): boolean {
+    const msg = err instanceof Error ? err.message : String(err);
+    return /error_not_found/i.test(msg) || /HTTP\s*404/i.test(msg);
+  }
+
+  function trackNotFound(itemId: unknown, stage: string) {
+    notFoundCount++;
+    if (notFoundItems.length < 50) {
+      notFoundItems.push({ itemId: String(itemId ?? ''), stage });
+    }
+  }
 
   for (const st of statuses) {
     logger.info(`🧾 Sync catálogo Shopee (status=${st})...`);
@@ -794,7 +808,12 @@ async function syncAnunciosCatalogoShopee(): Promise<{ total: number; normal: nu
 
             fetchedDetailCount++;
           } catch (e: any) {
-            // Mantém null se o endpoint não existir / falhar
+            if (isNotFoundError(e)) {
+              trackNotFound(item.item_id, 'get_item_detail:image');
+              logger.warn(`🟡 Item ID ${item.item_id} removido da Shopee (imagem), ignorando.`);
+            } else {
+              throw e;
+            }
           }
         }
 
@@ -863,8 +882,13 @@ async function syncAnunciosCatalogoShopee(): Promise<{ total: number; normal: nu
                   (Array.isArray(d0?.model) && d0.model) ||
                   (Array.isArray(d0?.model_info?.model_list) && d0.model_info.model_list) ||
                   [];
-              } catch {
-                // ignore
+              } catch (e: any) {
+                if (isNotFoundError(e)) {
+                  trackNotFound(item.item_id, 'get_item_detail:models');
+                  logger.warn(`🟡 Item ID ${item.item_id} removido da Shopee (modelos), ignorando.`);
+                } else {
+                  throw e;
+                }
               }
             }
 
@@ -945,7 +969,12 @@ async function syncAnunciosCatalogoShopee(): Promise<{ total: number; normal: nu
               fetchedModelsCount++;
             }
           } catch (e: any) {
-            // best-effort: se o endpoint não existir/sem permissão, ignora
+            if (isNotFoundError(e)) {
+              trackNotFound(item.item_id, 'get_model_list');
+              logger.warn(`🟡 Item ID ${item.item_id} removido da Shopee (modelos), ignorando.`);
+            } else {
+              throw e;
+            }
           }
         }
 
@@ -961,12 +990,18 @@ async function syncAnunciosCatalogoShopee(): Promise<{ total: number; normal: nu
   }
 
   const duracaoMs = Date.now() - startTime;
+  if (notFoundCount > 0) {
+    logger.warn('⚠️ Itens ignorados por 404 (error_not_found)', {
+      count: notFoundCount,
+      items: notFoundItems,
+    });
+  }
   await prisma.logSync.create({
     data: {
       tipo: 'ANUNCIOS_CATALOGO',
       status: 'SUCESSO',
       origem: 'SHOPEE',
-      mensagem: `Catálogo Shopee: ${total} anúncios (ATIVO=${normal}, INATIVO=${unlist})`,
+      mensagem: `Catálogo Shopee: ${total} anúncios (ATIVO=${normal}, INATIVO=${unlist}), 404 ignorados=${notFoundCount}`,
       registros: total,
       duracaoMs,
     },
