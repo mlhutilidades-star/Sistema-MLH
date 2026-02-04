@@ -1,6 +1,6 @@
 # ✅ DEPLOY STATUS — Sistema MLH
 
-**Data:** 2026-01-28
+**Data:** 2026-02-04
 
 ## URLs de Produção
 - Frontend: https://sistema-mlh-frontend-production.up.railway.app
@@ -20,6 +20,8 @@
 - UX Produtos: ✅ Removida exibição de preço de venda; custo é o único campo editável
 - Página Anúncios (catálogo Shopee): ✅ DESACOPLADA de Ads (usa Product API)
 - Página Anúncios (rentabilidade): ✅ SIMPLIFICADA (resumo no topo, tabela enxuta, detalhes por variação)
+- Shopee OAuth: ⚠️ REAUTORIZAÇÃO PENDENTE (tokens limpos para forçar fluxo novo)
+- Sync catálogo Shopee: ⚠️ PENDENTE (aguardando nova autorização)
 
 ## Shopee — renda líquida (escrow) ✅
 
