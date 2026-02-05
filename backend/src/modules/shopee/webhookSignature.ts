@@ -271,6 +271,9 @@ export function verifyWebhookSignature(input: {
   }
 
   if (config.requireTimestamp && !timestampSec) {
+    if (config.allowUnsigned) {
+      return { ok: true, reason: 'timestamp_missing_allow_unsigned' };
+    }
     return { ok: false, reason: 'timestamp_missing' };
   }
 
@@ -278,6 +281,9 @@ export function verifyWebhookSignature(input: {
     const now = Math.floor(Date.now() / 1000);
     const skew = Math.abs(now - timestampSec);
     if (Number.isFinite(config.maxSkewSec) && config.maxSkewSec > 0 && skew > config.maxSkewSec) {
+      if (config.allowUnsigned) {
+        return { ok: true, reason: 'timestamp_out_of_range_allow_unsigned', signature, timestampSec };
+      }
       return { ok: false, reason: 'timestamp_out_of_range', signature, timestampSec };
     }
   }
@@ -330,6 +336,9 @@ export function verifyWebhookSignature(input: {
     }
   }
 
+  if (config.allowUnsigned) {
+    return { ok: true, reason: 'signature_mismatch_allow_unsigned', signature, timestampSec, nonce };
+  }
   return { ok: false, reason: 'signature_mismatch', signature, timestampSec, nonce };
 }
 

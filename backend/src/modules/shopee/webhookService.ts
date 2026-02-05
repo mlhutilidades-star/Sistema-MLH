@@ -53,6 +53,13 @@ export class ShopeeWebhookService {
       });
       return { ok: false, status: 401, error: 'assinatura inválida', reason: verification.reason };
     }
+    if (verification.reason && verification.reason.includes('allow_unsigned')) {
+      logger.warn('webhook_bypassed', {
+        reason: verification.reason,
+        signature: verification.signature ? '[present]' : '[missing]',
+        ip: input.ip,
+      });
+    }
 
     const eventType = extractEventType(payload);
     const shopId = extractShopId(payload, input.headers);
