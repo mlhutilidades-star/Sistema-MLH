@@ -4,6 +4,7 @@ type HeaderMap = Record<string, string | string[] | undefined>;
 
 export type WebhookSignatureConfig = {
   secret: string;
+  secretFormat: 'utf8' | 'hex';
   partnerId?: string;
   signatureHeaderCandidates: string[];
   timestampHeaderCandidates: string[];
@@ -41,20 +42,32 @@ export function getWebhookSignatureConfig(): WebhookSignatureConfig {
       ? 'template'
       : (rawMode as WebhookSignatureConfig['signatureMode']);
 
+  const secretFormatEnv = String(process.env.SHOPEE_WEBHOOK_SECRET_FORMAT || '').trim().toLowerCase();
+  const isHexLike = !!secret && /^[0-9a-fA-F]+$/.test(secret) && secret.length % 2 === 0;
+  const secretFormat: 'utf8' | 'hex' =
+    secretFormatEnv === 'hex'
+      ? 'hex'
+      : secretFormatEnv === 'utf8'
+        ? 'utf8'
+        : isHexLike
+          ? 'hex'
+          : 'utf8';
+
   return {
     secret,
+    secretFormat,
     partnerId,
     signatureHeaderCandidates: parseList(
       process.env.SHOPEE_WEBHOOK_SIGNATURE_HEADER,
-      ['x-shopee-signature', 'authorization', 'x-authorization']
+      ['x-shopee-signature', 'x-signature', 'authorization', 'x-authorization']
     ),
     timestampHeaderCandidates: parseList(
       process.env.SHOPEE_WEBHOOK_TIMESTAMP_HEADER,
-      ['x-shopee-timestamp', 'timestamp', 'x-timestamp']
+      ['x-shopee-timestamp', 'x-timestamp', 'timestamp']
     ),
     nonceHeaderCandidates: parseList(
       process.env.SHOPEE_WEBHOOK_NONCE_HEADER,
-      ['x-shopee-nonce', 'nonce', 'x-nonce']
+      ['x-shopee-nonce', 'x-nonce', 'nonce']
     ),
     signatureMode,
     signatureTemplate: String(process.env.SHOPEE_WEBHOOK_SIGNATURE_TEMPLATE || '${partner_id}${path}${timestamp}${body}'),
@@ -150,8 +163,9 @@ function buildSignatureBases(input: {
   }
 }
 
-function computeHmac(secret: string, base: string) {
-  const hmac = crypto.createHmac('sha256', secret);
+function computeHmac(secret: string, base: string, format: 'utf8' | 'hex') {
+  const key = format === 'hex' ? Buffer.from(secret, 'hex') : Buffer.from(secret, 'utf8');
+  const hmac = crypto.createHmac('sha256', key);
   hmac.update(base, 'utf8');
   const hex = hmac.digest('hex');
   const base64 = Buffer.from(hex, 'hex').toString('base64');
@@ -231,7 +245,7 @@ export function verifyWebhookSignature(input: {
   });
 
   for (const base of bases) {
-    const { hex, base64 } = computeHmac(config.secret, base);
+    const { hex, base64 } = computeHmac(config.secret, base, config.secretFormat);
     const normalized = signature.toLowerCase();
     if (safeEqual(normalized, hex.toLowerCase()) || safeEqual(signature, base64)) {
       return { ok: true, signature, timestampSec, nonce };
@@ -263,7 +277,7 @@ export function signWebhookPayload(input: {
     nonce: input.nonce || '',
   });
   const base = bases[0] ?? input.rawBody;
-  const { hex, base64 } = computeHmac(config.secret, base);
+  const { hex, base64 } = computeHmac(config.secret, base, config.secretFormat);
   const signature = config.signatureEncoding === 'base64' ? base64 : hex;
   return { signature, base };
 }

@@ -40,6 +40,8 @@ Recomendadas:
   Tokens aceitos: `partner_id`, `secret`, `path`, `timestamp`, `body`, `shop_id`, `event_type`, `nonce`.
 - `SHOPEE_WEBHOOK_SIGNATURE_ENCODING`  
   `hex` ou `base64`. Default: `hex`.
+- `SHOPEE_WEBHOOK_SECRET_FORMAT`  
+  `utf8` ou `hex`. Default: auto (detecta hex).
 - `SHOPEE_WEBHOOK_MAX_SKEW_SEC`  
   Janela anti-replay (default 300s).
 - `SHOPEE_WEBHOOK_REQUIRE_TIMESTAMP`  
