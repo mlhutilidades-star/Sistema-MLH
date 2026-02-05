@@ -14,6 +14,7 @@ import {
   upsertShopeeTokens,
 } from './tokenStore';
 import { ShopeeWebhookService } from './webhookService';
+import { getWebhookSignatureConfig } from './webhookSignature';
 
 const router = Router();
 
@@ -43,6 +44,38 @@ router.post(['/webhook', '/push'], async (req: Request, res: Response) => {
   const prisma = getPrismaClient();
   const service = new ShopeeWebhookService(prisma);
   const path = String(req.originalUrl || req.path || '/api/shopee/webhook').split('?')[0];
+  const logHits = String(process.env.SHOPEE_WEBHOOK_LOG_HITS || '').trim().toLowerCase() === 'true';
+  if (logHits) {
+    const headerKeys = Object.keys(req.headers || {});
+    const signatureHeaders = headerKeys.filter((key) => {
+      const lower = key.toLowerCase();
+      return (
+        lower.includes('signature') ||
+        lower.includes('sign') ||
+        lower.includes('timestamp') ||
+        lower.includes('nonce') ||
+        lower.startsWith('x-shopee')
+      );
+    });
+    const signatureConfig = getWebhookSignatureConfig();
+    const configuredSignatureHeaders = signatureConfig.signatureHeaderCandidates;
+    const configuredTimestampHeaders = signatureConfig.timestampHeaderCandidates;
+    const configuredNonceHeaders = signatureConfig.nonceHeaderCandidates;
+    logger.info('webhook_hit', {
+      method: req.method,
+      path,
+      contentType: req.get('content-type') || undefined,
+      contentLength: req.get('content-length') || undefined,
+      hasRawBody: !!req.rawBody,
+      rawBodyLength: req.rawBody ? req.rawBody.length : 0,
+      signatureHeaders,
+      configuredSignatureHeaders,
+      configuredTimestampHeaders,
+      configuredNonceHeaders,
+      ip: req.ip,
+      userAgent: req.get('user-agent') || undefined,
+    });
+  }
   try {
     const result = await service.handleWebhook({
       headers: req.headers as Record<string, string | string[] | undefined>,
@@ -66,11 +99,29 @@ router.post(['/webhook', '/push'], async (req: Request, res: Response) => {
   }
 });
 
-router.get(['/webhook', '/push'], (_req: Request, res: Response) => {
+router.get(['/webhook', '/push'], (req: Request, res: Response) => {
+  const logHits = String(process.env.SHOPEE_WEBHOOK_LOG_HITS || '').trim().toLowerCase() === 'true';
+  if (logHits) {
+    logger.info('webhook_hit', {
+      method: 'GET',
+      path: String(req.originalUrl || req.path || '/api/shopee/webhook'),
+      ip: req.ip,
+      userAgent: req.get('user-agent') || undefined,
+    });
+  }
   res.status(200).json({ success: true, message: 'ok' });
 });
 
-router.head(['/webhook', '/push'], (_req: Request, res: Response) => {
+router.head(['/webhook', '/push'], (req: Request, res: Response) => {
+  const logHits = String(process.env.SHOPEE_WEBHOOK_LOG_HITS || '').trim().toLowerCase() === 'true';
+  if (logHits) {
+    logger.info('webhook_hit', {
+      method: 'HEAD',
+      path: String(req.originalUrl || req.path || '/api/shopee/webhook'),
+      ip: req.ip,
+      userAgent: req.get('user-agent') || undefined,
+    });
+  }
   res.sendStatus(200);
 });
 

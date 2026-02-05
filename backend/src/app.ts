@@ -55,6 +55,15 @@ app.use(
   })
 );
 app.use(
+  express.text({
+    type: ['text/*'],
+    limit: '10mb',
+    verify: (req, _res, buf) => {
+      req.rawBody = buf;
+    },
+  })
+);
+app.use(
   express.urlencoded({
     extended: true,
     limit: '10mb',
