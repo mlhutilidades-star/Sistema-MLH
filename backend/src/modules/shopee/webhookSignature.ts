@@ -244,11 +244,16 @@ export function verifyWebhookSignature(input: {
     nonce: nonce || '',
   });
 
+  const formats: Array<'utf8' | 'hex'> =
+    config.secretFormat === 'hex' ? ['hex', 'utf8'] : ['utf8', 'hex'];
+
   for (const base of bases) {
-    const { hex, base64 } = computeHmac(config.secret, base, config.secretFormat);
-    const normalized = signature.toLowerCase();
-    if (safeEqual(normalized, hex.toLowerCase()) || safeEqual(signature, base64)) {
-      return { ok: true, signature, timestampSec, nonce };
+    for (const format of formats) {
+      const { hex, base64 } = computeHmac(config.secret, base, format);
+      const normalized = signature.toLowerCase();
+      if (safeEqual(normalized, hex.toLowerCase()) || safeEqual(signature, base64)) {
+        return { ok: true, signature, timestampSec, nonce };
+      }
     }
   }
 

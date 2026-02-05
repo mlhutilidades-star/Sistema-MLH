@@ -66,6 +66,14 @@ router.post(['/webhook', '/push'], async (req: Request, res: Response) => {
   }
 });
 
+router.get(['/webhook', '/push'], (_req: Request, res: Response) => {
+  res.status(200).json({ success: true, message: 'ok' });
+});
+
+router.head(['/webhook', '/push'], (_req: Request, res: Response) => {
+  res.sendStatus(200);
+});
+
 function requireAdmin(req: Request): void {
   const secret = process.env.OAUTH_ADMIN_SECRET;
   if (!secret) {
