@@ -54,7 +54,15 @@ app.use(
     },
   })
 );
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(
+  express.urlencoded({
+    extended: true,
+    limit: '10mb',
+    verify: (req, _res, buf) => {
+      req.rawBody = buf;
+    },
+  })
+);
 
 // Rate limiting
 const limiter = rateLimit({
