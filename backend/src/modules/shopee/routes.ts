@@ -13,6 +13,7 @@ import {
   saveOauthCallback,
   upsertShopeeTokens,
 } from './tokenStore';
+import { ShopeeWebhookService } from './webhookService';
 
 const router = Router();
 
@@ -36,6 +37,34 @@ type ReprocessProfitJob = {
 
 let lastReprocessProfit: ReprocessProfitJob | null = null;
 let lastReprocessProfitShopee: ReprocessProfitJob | null = null;
+
+// Webhook (Push Mechanism) - não protegido por x-admin-secret; usa assinatura.
+router.post(['/webhook', '/push'], async (req: Request, res: Response) => {
+  const prisma = getPrismaClient();
+  const service = new ShopeeWebhookService(prisma);
+  const path = String(req.originalUrl || req.path || '/api/shopee/webhook').split('?')[0];
+  try {
+    const result = await service.handleWebhook({
+      headers: req.headers as Record<string, string | string[] | undefined>,
+      rawBody: req.rawBody,
+      body: req.body,
+      path,
+      ip: req.ip,
+      userAgent: req.get('user-agent') || undefined,
+    });
+
+    res.status(result.status).json({
+      success: result.ok,
+      eventId: result.eventId,
+      duplicate: result.duplicate,
+      error: result.error,
+      reason: result.reason,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    res.status(500).json({ success: false, error: message });
+  }
+});
 
 function requireAdmin(req: Request): void {
   const secret = process.env.OAUTH_ADMIN_SECRET;

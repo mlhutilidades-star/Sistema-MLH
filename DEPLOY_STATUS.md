@@ -23,6 +23,16 @@
 - Shopee OAuth: ⚠️ REAUTORIZAÇÃO PENDENTE (tokens limpos para forçar fluxo novo)
 - Sync catálogo Shopee: ⚠️ PENDENTE (aguardando nova autorização)
 
+## Validação pós-deploy (2026-02-04 20:25Z)
+- Deploy Railway: ✅ Serviço ativo (health OK); mensagens de startup não apareceram no tail recente
+- `GET /health`: ✅ 200 (database: connected)
+- `GET /api/anuncios?limit=5`: ✅ 200 (total=112)
+- `GET /api/anuncios/rentabilidade?limit=5`: ✅ 200 (total=112; semCusto=18)
+- `GET /api/shopee/token-status`: ⚠️ PENDENTE (requer `x-admin-secret`)
+- Sync status: ⚠️ sem logs de sync no tail recente (última atividade visível: 404 Shopee item_detail)
+- Resiliência Shopee: ✅ logs de stats (cacheHitRate=0%, rateLimitCount=0, breakerOpenCount=0)
+- Frontend /anuncios: ⚠️ página aberta; validação de filtros/busca/ordenação/paginação requer verificação manual no navegador
+
 ## Shopee — renda líquida (escrow) ✅
 
 - Correção aplicada: quando `get_order_detail` retorna `escrow_amount=0/ausente`, o backend consulta `/payment/get_escrow_detail` e usa `response.order_income.escrow_amount` como **renda líquida real**.

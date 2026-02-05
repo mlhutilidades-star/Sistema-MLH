@@ -714,6 +714,8 @@ async function syncAnunciosCatalogoShopee(): Promise<{ total: number; normal: nu
   let fetchedModelsCount = 0;
   let notFoundCount = 0;
   const notFoundItems: Array<{ itemId: string; stage: string }> = [];
+  let markedInactiveCount = 0;
+  const markedInactiveItems: Array<{ itemId: string; stage: string }> = [];
 
   function isNotFoundError(err: unknown): boolean {
     const msg = err instanceof Error ? err.message : String(err);
@@ -724,6 +726,34 @@ async function syncAnunciosCatalogoShopee(): Promise<{ total: number; normal: nu
     notFoundCount++;
     if (notFoundItems.length < 50) {
       notFoundItems.push({ itemId: String(itemId ?? ''), stage });
+    }
+  }
+
+  async function markItemInactive(itemId: unknown, stage: string) {
+    let itemIdBigInt: bigint | null = null;
+    try {
+      itemIdBigInt = BigInt(String(itemId));
+    } catch {
+      return;
+    }
+
+    const result = await prisma.anuncioCatalogo.updateMany({
+      where: {
+        platform: 'SHOPEE',
+        shopId: resolved.shopId,
+        itemId: itemIdBigInt,
+      },
+      data: {
+        status: 'INATIVO',
+      },
+    });
+
+    if (result.count > 0) {
+      markedInactiveCount += result.count;
+      if (markedInactiveItems.length < 50) {
+        markedInactiveItems.push({ itemId: String(itemIdBigInt), stage });
+      }
+      logger.warn(`Item ${String(itemIdBigInt)} marcado como inativo por 404`, { stage });
     }
   }
 
@@ -757,6 +787,7 @@ async function syncAnunciosCatalogoShopee(): Promise<{ total: number; normal: nu
         const itemId = BigInt(String(item.item_id));
         const sku = String(item.item_sku || '').trim() || null;
         const nome = String(item.item_name || '').trim() || sku || String(item.item_id);
+        let forceInactive = false;
 
         const anyItem: any = item as any;
         const listExtra: any = listExtraById.get(Number(item.item_id));
@@ -810,6 +841,8 @@ async function syncAnunciosCatalogoShopee(): Promise<{ total: number; normal: nu
           } catch (e: any) {
             if (isNotFoundError(e)) {
               trackNotFound(item.item_id, 'get_item_detail:image');
+              forceInactive = true;
+              await markItemInactive(item.item_id, 'get_item_detail:image');
               logger.warn(`🟡 Item ID ${item.item_id} removido da Shopee (imagem), ignorando.`);
             } else {
               throw e;
@@ -818,7 +851,7 @@ async function syncAnunciosCatalogoShopee(): Promise<{ total: number; normal: nu
         }
 
         const rawStatus = String(item.item_status || '').trim();
-        const statusFinal = rawStatus === 'NORMAL' ? 'ATIVO' : rawStatus === 'UNLIST' ? 'INATIVO' : rawStatus || st;
+        const statusFinal = forceInactive ? 'INATIVO' : rawStatus === 'NORMAL' ? 'ATIVO' : rawStatus === 'UNLIST' ? 'INATIVO' : rawStatus || st;
 
         const currentPriceRaw = Number(item.price_info?.[0]?.current_price ?? NaN);
         const preco = Number.isFinite(currentPriceRaw)
@@ -863,7 +896,7 @@ async function syncAnunciosCatalogoShopee(): Promise<{ total: number; normal: nu
         });
 
         // Variações (modelos) -> ficam dentro do anúncio
-        if (fetchModels && fetchedModelsCount < fetchModelsMax) {
+        if (fetchModels && fetchedModelsCount < fetchModelsMax && !forceInactive) {
           try {
             await sleep(120);
             const modelRes: any = await shopee.getModelList(Number(item.item_id));
@@ -885,6 +918,8 @@ async function syncAnunciosCatalogoShopee(): Promise<{ total: number; normal: nu
               } catch (e: any) {
                 if (isNotFoundError(e)) {
                   trackNotFound(item.item_id, 'get_item_detail:models');
+                  forceInactive = true;
+                  await markItemInactive(item.item_id, 'get_item_detail:models');
                   logger.warn(`🟡 Item ID ${item.item_id} removido da Shopee (modelos), ignorando.`);
                 } else {
                   throw e;
@@ -971,6 +1006,8 @@ async function syncAnunciosCatalogoShopee(): Promise<{ total: number; normal: nu
           } catch (e: any) {
             if (isNotFoundError(e)) {
               trackNotFound(item.item_id, 'get_model_list');
+              forceInactive = true;
+              await markItemInactive(item.item_id, 'get_model_list');
               logger.warn(`🟡 Item ID ${item.item_id} removido da Shopee (modelos), ignorando.`);
             } else {
               throw e;
@@ -996,12 +1033,18 @@ async function syncAnunciosCatalogoShopee(): Promise<{ total: number; normal: nu
       items: notFoundItems,
     });
   }
+  if (markedInactiveCount > 0) {
+    logger.warn('🧹 Itens marcados como INATIVO por 404', {
+      count: markedInactiveCount,
+      items: markedInactiveItems,
+    });
+  }
   await prisma.logSync.create({
     data: {
       tipo: 'ANUNCIOS_CATALOGO',
       status: 'SUCESSO',
       origem: 'SHOPEE',
-      mensagem: `Catálogo Shopee: ${total} anúncios (ATIVO=${normal}, INATIVO=${unlist}), 404 ignorados=${notFoundCount}`,
+      mensagem: `Catálogo Shopee: ${total} anúncios (ATIVO=${normal}, INATIVO=${unlist}), 404 ignorados=${notFoundCount}, marcados inativo=${markedInactiveCount}`,
       registros: total,
       duracaoMs,
     },

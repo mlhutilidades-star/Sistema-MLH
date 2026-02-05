@@ -17,6 +17,7 @@
     "recalc:lucro": "tsx scripts/recalculateProfit.ts",
     "shopee:refresh-token": "tsx scripts/refreshShopeeToken.ts",
     "shopee:refresh-token:prod": "node dist/scripts/refreshShopeeToken.js",
+    "shopee:webhook:test": "tsx scripts/testShopeeWebhook.ts",
     "verify:health": "tsx scripts/verifyHealth.ts",
     "report:weekly": "tsx scripts/weeklyReport.ts",
     "railway:deploy": "railway up"

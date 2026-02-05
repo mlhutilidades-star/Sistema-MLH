@@ -11,6 +11,7 @@ import { ProdutoService } from './modules/produtos/service';
 import { FinanceiroService } from './modules/financeiro/service';
 import { startAlertasScheduler } from './modules/alertas/scheduler';
 import { spawn } from 'node:child_process';
+import { startShopeeWebhookWorker } from './modules/shopee/webhookWorker';
 
 // Validar configurações
 try {
@@ -71,6 +72,14 @@ connectDatabase()
 
     // Alertas automáticos (Slack/email)
     startAlertasScheduler();
+
+    // Shopee Push Mechanism: worker da fila de webhooks
+    const webhookWorkerEnabled = String(process.env.SHOPEE_WEBHOOK_WORKER_ENABLED || 'true').trim().toLowerCase() !== 'false';
+    if (webhookWorkerEnabled) {
+      startShopeeWebhookWorker();
+    } else {
+      logger.info('Shopee webhook worker: desabilitado (SHOPEE_WEBHOOK_WORKER_ENABLED=false)');
+    }
 
     // Shopee OAuth: refresh automático (opcional)
     const shopeeOauthAutoRefresh = String(process.env.SHOPEE_OAUTH_AUTO_REFRESH || '').trim().toLowerCase() === 'true';

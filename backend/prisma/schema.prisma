@@ -342,3 +342,36 @@ model ShopeeOauthCallback {
   @@map("shopee_oauth_callbacks")
   @@index([receivedAt])
 }
+
+// ==========================================
+// SHOPEE PUSH MECHANISM - Webhook events queue
+// ==========================================
+enum ShopeeWebhookStatus {
+  PENDING
+  PROCESSING
+  PROCESSED
+  FAILED
+  IGNORED
+}
+
+model ShopeeWebhookEvent {
+  id          String              @id @default(uuid())
+  eventId     String              @unique @map("event_id")
+  eventType   String              @map("event_type")
+  shopId      String?             @map("shop_id")
+  itemId      String?             @map("item_id")
+  modelId     String?             @map("model_id")
+  payload     Json
+  receivedAt  DateTime            @default(now()) @map("received_at")
+  processedAt DateTime?           @map("processed_at")
+  status      ShopeeWebhookStatus @default(PENDING)
+  attempts    Int                 @default(0)
+  lastError   String?             @map("last_error")
+  createdAt   DateTime            @default(now()) @map("created_at")
+  updatedAt   DateTime            @updatedAt @map("updated_at")
+
+  @@map("shopee_webhook_events")
+  @@index([status, receivedAt])
+  @@index([shopId])
+  @@index([itemId])
+}

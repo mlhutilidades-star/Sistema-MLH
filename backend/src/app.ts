@@ -46,7 +46,14 @@ app.use(cors({
 }));
 
 // Body parser
-app.use(express.json({ limit: '10mb' }));
+app.use(
+  express.json({
+    limit: '10mb',
+    verify: (req, _res, buf) => {
+      req.rawBody = buf;
+    },
+  })
+);
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Rate limiting
@@ -59,6 +66,7 @@ const limiter = rateLimit({
     // Permitir OAuth da Shopee sem bloqueio para facilitar o fluxo de autorização.
     // Observação: `req.path` aqui é relativo ao mount `/api/`.
     if (path.startsWith('/shopee/oauth/')) return true;
+    if (path.startsWith('/shopee/webhook') || path.startsWith('/shopee/push')) return true;
     return false;
   },
 });
