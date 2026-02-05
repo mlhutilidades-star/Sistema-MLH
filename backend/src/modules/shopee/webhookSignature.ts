@@ -25,12 +25,24 @@ function parseBool(value: string | undefined, fallback: boolean): boolean {
   return fallback;
 }
 
-function parseList(raw: string | undefined, fallback: string[]): string[] {
-  if (!raw) return fallback;
+function parseList(raw: string | undefined): string[] {
+  if (!raw) return [];
   return raw
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
+}
+
+function mergeList(raw: string | undefined, fallback: string[]): string[] {
+  const list = parseList(raw);
+  if (list.length === 0) return fallback;
+  const out = [...list];
+  for (const item of fallback) {
+    if (!out.some((entry) => entry.toLowerCase() === item.toLowerCase())) {
+      out.push(item);
+    }
+  }
+  return out;
 }
 
 export function getWebhookSignatureConfig(): WebhookSignatureConfig {
@@ -57,15 +69,15 @@ export function getWebhookSignatureConfig(): WebhookSignatureConfig {
     secret,
     secretFormat,
     partnerId,
-    signatureHeaderCandidates: parseList(
+    signatureHeaderCandidates: mergeList(
       process.env.SHOPEE_WEBHOOK_SIGNATURE_HEADER,
-      ['x-shopee-signature', 'x-signature', 'authorization', 'x-authorization']
+      ['x-shopee-signature', 'x-shopee-signature-256', 'x-signature', 'authorization', 'x-authorization']
     ),
-    timestampHeaderCandidates: parseList(
+    timestampHeaderCandidates: mergeList(
       process.env.SHOPEE_WEBHOOK_TIMESTAMP_HEADER,
       ['x-shopee-timestamp', 'x-timestamp', 'timestamp']
     ),
-    nonceHeaderCandidates: parseList(
+    nonceHeaderCandidates: mergeList(
       process.env.SHOPEE_WEBHOOK_NONCE_HEADER,
       ['x-shopee-nonce', 'x-nonce', 'nonce']
     ),
@@ -79,7 +91,12 @@ export function getWebhookSignatureConfig(): WebhookSignatureConfig {
 }
 
 function normalizeSignature(value: string): string {
-  return value.replace(/^sha256=/i, '').trim();
+  let normalized = value.trim();
+  normalized = normalized.replace(/^bearer\s+/i, '');
+  normalized = normalized.replace(/^signature[:=\s]+/i, '');
+  normalized = normalized.replace(/^hmac[-_]?sha256[:=\s]+/i, '');
+  normalized = normalized.replace(/^sha256[:=\s]+/i, '');
+  return normalized.trim();
 }
 
 function getHeaderValue(headers: HeaderMap, candidates: string[]): string | null {
@@ -98,14 +115,44 @@ function getHeaderValue(headers: HeaderMap, candidates: string[]): string | null
   return null;
 }
 
-function parseTimestamp(raw: string | null): number | null {
-  if (!raw) return null;
-  const cleaned = raw.trim();
+function parseTimestamp(raw: string | number | null | undefined): number | null {
+  if (raw === null || raw === undefined) return null;
+  const cleaned = String(raw).trim();
   if (!cleaned) return null;
   const n = Number(cleaned);
   if (!Number.isFinite(n)) return null;
   // Heurística: timestamps > 1e12 são ms, senão segundos
   return n > 1_000_000_000_000 ? Math.floor(n / 1000) : Math.floor(n);
+}
+
+function extractPayloadTimestamp(payload: unknown): string | number | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const anyPayload = payload as Record<string, any>;
+  const direct = anyPayload.timestamp ?? anyPayload.ts ?? anyPayload.time;
+  if (typeof direct === 'string' || typeof direct === 'number') return direct;
+  const nested = anyPayload.data?.timestamp ?? anyPayload.data?.ts ?? anyPayload.data?.time;
+  if (typeof nested === 'string' || typeof nested === 'number') return nested;
+  return null;
+}
+
+function extractPayloadNonce(payload: unknown): string | number | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const anyPayload = payload as Record<string, any>;
+  const direct = anyPayload.nonce ?? anyPayload.random ?? anyPayload.rnd;
+  if (typeof direct === 'string' || typeof direct === 'number') return direct;
+  const nested = anyPayload.data?.nonce ?? anyPayload.data?.random ?? anyPayload.data?.rnd;
+  if (typeof nested === 'string' || typeof nested === 'number') return nested;
+  return null;
+}
+
+function extractPayloadSignature(payload: unknown): string | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const anyPayload = payload as Record<string, any>;
+  const direct = anyPayload.signature ?? anyPayload.sign ?? anyPayload.signing ?? anyPayload.hmac;
+  if (typeof direct === 'string' && direct.trim()) return direct.trim();
+  const nested = anyPayload.data?.signature ?? anyPayload.data?.sign ?? anyPayload.data?.signing ?? anyPayload.data?.hmac;
+  if (typeof nested === 'string' && nested.trim()) return nested.trim();
+  return null;
 }
 
 function buildBaseFromTemplate(template: string, tokens: Record<string, string>): string {
@@ -154,8 +201,13 @@ function buildSignatureBases(input: {
       return [
         buildBaseFromTemplate(input.template, tokens),
         `${input.partnerId || ''}${input.path}${input.timestamp}${input.body}`,
+        `${input.partnerId || ''}${input.timestamp}${input.body}`,
         `${input.path}${input.timestamp}${input.body}`,
         `${input.timestamp}${input.body}`,
+        `${input.timestamp}${input.nonce || ''}${input.body}`,
+        `${input.partnerId || ''}${input.timestamp}${input.nonce || ''}${input.body}`,
+        `${input.path}${input.timestamp}${input.nonce || ''}${input.body}`,
+        `${input.nonce || ''}${input.timestamp}${input.body}`,
         input.body,
       ];
     default:
@@ -202,16 +254,21 @@ export function verifyWebhookSignature(input: {
   }
 
   const signatureHeader = getHeaderValue(input.headers, config.signatureHeaderCandidates);
-  if (!signatureHeader) {
+  const signatureFromPayload = extractPayloadSignature(input.payload);
+  const signatureRaw = signatureHeader ?? signatureFromPayload;
+  if (!signatureRaw) {
     if (config.allowUnsigned) {
       return { ok: true, reason: 'signature_missing_allow_unsigned' };
     }
     return { ok: false, reason: 'signature_missing' };
   }
 
-  const signature = normalizeSignature(signatureHeader);
+  const signature = normalizeSignature(signatureRaw);
   const timestampHeader = getHeaderValue(input.headers, config.timestampHeaderCandidates);
-  const timestampSec = parseTimestamp(timestampHeader);
+  let timestampSec = parseTimestamp(timestampHeader);
+  if (!timestampSec) {
+    timestampSec = parseTimestamp(extractPayloadTimestamp(input.payload));
+  }
 
   if (config.requireTimestamp && !timestampSec) {
     return { ok: false, reason: 'timestamp_missing' };
@@ -226,23 +283,39 @@ export function verifyWebhookSignature(input: {
   }
 
   const nonceHeader = getHeaderValue(input.headers, config.nonceHeaderCandidates);
-  const nonce = nonceHeader ? nonceHeader.trim() : null;
+  const nonceFallback = extractPayloadNonce(input.payload);
+  const nonce = nonceHeader ? nonceHeader.trim() : nonceFallback ? String(nonceFallback).trim() : null;
   const payload = input.payload ?? {};
   const shopId = typeof payload === 'object' ? String(payload?.shop_id ?? payload?.shopId ?? '') : '';
   const eventType = typeof payload === 'object' ? String(payload?.event_type ?? payload?.eventType ?? '') : '';
 
-  const bases = buildSignatureBases({
-    mode: config.signatureMode,
-    template: config.signatureTemplate,
-    partnerId: config.partnerId,
-    secret: config.secret,
-    path: input.path,
-    timestamp: timestampSec ? String(timestampSec) : '',
-    body: input.rawBody,
-    shopId,
-    eventType,
-    nonce: nonce || '',
-  });
+  const pathCandidates = [input.path];
+  const trimmedSlash = input.path.replace(/\/+$/, '');
+  if (trimmedSlash && trimmedSlash !== input.path) {
+    pathCandidates.push(trimmedSlash);
+  }
+  if (input.path.startsWith('/api/shopee')) {
+    const shortPath = input.path.replace(/^\/api\/shopee/, '') || '/';
+    if (!pathCandidates.includes(shortPath)) pathCandidates.push(shortPath);
+  }
+
+  const bases: string[] = [];
+  for (const candidate of pathCandidates) {
+    bases.push(
+      ...buildSignatureBases({
+        mode: config.signatureMode,
+        template: config.signatureTemplate,
+        partnerId: config.partnerId,
+        secret: config.secret,
+        path: candidate,
+        timestamp: timestampSec ? String(timestampSec) : '',
+        body: input.rawBody,
+        shopId,
+        eventType,
+        nonce: nonce || '',
+      })
+    );
+  }
 
   const formats: Array<'utf8' | 'hex'> =
     config.secretFormat === 'hex' ? ['hex', 'utf8'] : ['utf8', 'hex'];
