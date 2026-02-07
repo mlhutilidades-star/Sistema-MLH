@@ -32,6 +32,52 @@ export type WebhookHandleResult = {
   reason?: string;
 };
 
+function getHeaderValue(headers: HeaderMap, candidates: string[]): string | null {
+  for (const name of candidates) {
+    const target = name.toLowerCase();
+    for (const [key, value] of Object.entries(headers)) {
+      if (key.toLowerCase() !== target) continue;
+      if (Array.isArray(value)) {
+        const first = value.find((item) => typeof item === 'string' && item.trim());
+        if (first) return first.trim();
+      } else if (typeof value === 'string' && value.trim()) {
+        return value.trim();
+      }
+    }
+  }
+  return null;
+}
+
+function getClientIp(input: WebhookHandleInput): string | null {
+  const forwarded = getHeaderValue(input.headers, ['x-forwarded-for']);
+  if (forwarded) {
+    const first = forwarded.split(',')[0]?.trim();
+    if (first) return first;
+  }
+  if (input.ip && input.ip.trim()) return input.ip.trim();
+  return null;
+}
+
+function parseAllowlist(raw: string | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function isVerifyBypassAllowed(input: WebhookHandleInput): boolean {
+  const enabled = String(process.env.SHOPEE_WEBHOOK_VERIFY_BYPASS_ENABLED || '')
+    .trim()
+    .toLowerCase() === 'true';
+  if (!enabled) return false;
+  const allowlist = parseAllowlist(process.env.SHOPEE_WEBHOOK_VERIFY_BYPASS_IP_ALLOWLIST);
+  if (allowlist.length === 0) return false;
+  const clientIp = getClientIp(input);
+  if (!clientIp) return false;
+  return allowlist.includes(clientIp);
+}
+
 export class ShopeeWebhookService {
   constructor(private prisma: PrismaClient) {}
 
@@ -46,12 +92,31 @@ export class ShopeeWebhookService {
     });
 
     if (!verification.ok) {
+      const reason = verification.reason || '';
+      if (
+        (reason === 'timestamp_missing' || reason === 'signature_missing') &&
+        isVerifyBypassAllowed(input)
+      ) {
+        logger.warn('webhook_verify_bypass', {
+          reason,
+          ip: getClientIp(input),
+        });
+        return { ok: true, status: 204, reason: 'verify_bypass' };
+      }
       logger.warn('webhook_invalid', {
         reason: verification.reason,
         signature: verification.signature ? '[present]' : '[missing]',
         ip: input.ip,
       });
       return { ok: false, status: 401, error: 'assinatura inválida', reason: verification.reason };
+    }
+    if (verification.match) {
+      logger.info('webhook_signature_match', {
+        label: verification.match.label,
+        encoding: verification.match.encoding,
+        secretFormat: verification.match.secretFormat,
+        path: verification.match.path,
+      });
     }
     if (verification.reason && verification.reason.includes('allow_unsigned')) {
       logger.warn('webhook_bypassed', {

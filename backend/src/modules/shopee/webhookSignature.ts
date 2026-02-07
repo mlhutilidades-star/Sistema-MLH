@@ -17,6 +17,19 @@ export type WebhookSignatureConfig = {
   allowUnsigned: boolean;
 };
 
+type SignatureMatch = {
+  label: string;
+  encoding: 'hex' | 'base64';
+  secretFormat: 'utf8' | 'hex';
+  path: string;
+};
+
+type SignatureBaseCandidate = {
+  label: string;
+  base: string;
+  path: string;
+};
+
 function parseBool(value: string | undefined, fallback: boolean): boolean {
   if (!value) return fallback;
   const raw = value.trim().toLowerCase();
@@ -215,6 +228,105 @@ function buildSignatureBases(input: {
   }
 }
 
+function buildSignatureCandidates(input: {
+  mode: WebhookSignatureConfig['signatureMode'];
+  template: string;
+  partnerId?: string;
+  secret?: string;
+  path: string;
+  timestamp: string;
+  body: string;
+  shopId?: string;
+  eventType?: string;
+  nonce?: string;
+}): SignatureBaseCandidate[] {
+  const tokens = {
+    partner_id: input.partnerId || '',
+    secret: input.secret || '',
+    path: input.path,
+    timestamp: input.timestamp,
+    body: input.body,
+    shop_id: input.shopId || '',
+    event_type: input.eventType || '',
+    nonce: input.nonce || '',
+  };
+
+  const candidates: SignatureBaseCandidate[] = [];
+  if (input.mode === 'auto') {
+    candidates.push({
+      label: `template:${input.template}`,
+      base: buildBaseFromTemplate(input.template, tokens),
+      path: input.path,
+    });
+    candidates.push({
+      label: 'partner_id+path+timestamp+body',
+      base: `${input.partnerId || ''}${input.path}${input.timestamp}${input.body}`,
+      path: input.path,
+    });
+    candidates.push({
+      label: 'partner_id+timestamp+body',
+      base: `${input.partnerId || ''}${input.timestamp}${input.body}`,
+      path: input.path,
+    });
+    candidates.push({
+      label: 'path+timestamp+body',
+      base: `${input.path}${input.timestamp}${input.body}`,
+      path: input.path,
+    });
+    candidates.push({
+      label: 'timestamp+body',
+      base: `${input.timestamp}${input.body}`,
+      path: input.path,
+    });
+    candidates.push({
+      label: 'timestamp+nonce+body',
+      base: `${input.timestamp}${input.nonce || ''}${input.body}`,
+      path: input.path,
+    });
+    candidates.push({
+      label: 'partner_id+timestamp+nonce+body',
+      base: `${input.partnerId || ''}${input.timestamp}${input.nonce || ''}${input.body}`,
+      path: input.path,
+    });
+    candidates.push({
+      label: 'path+timestamp+nonce+body',
+      base: `${input.path}${input.timestamp}${input.nonce || ''}${input.body}`,
+      path: input.path,
+    });
+    candidates.push({
+      label: 'nonce+timestamp+body',
+      base: `${input.nonce || ''}${input.timestamp}${input.body}`,
+      path: input.path,
+    });
+    candidates.push({
+      label: 'body',
+      base: input.body,
+      path: input.path,
+    });
+
+    const debugTemplates = [
+      { label: 'secret+timestamp+nonce+body', template: '{secret}{timestamp}{nonce}{body}' },
+      { label: 'body+secret+timestamp+nonce', template: '{body}{secret}{timestamp}{nonce}' },
+      { label: 'timestamp+nonce+body+secret', template: '{timestamp}{nonce}{body}{secret}' },
+    ];
+    for (const item of debugTemplates) {
+      candidates.push({
+        label: item.label,
+        base: buildBaseFromTemplate(item.template, tokens),
+        path: input.path,
+      });
+    }
+  } else {
+    const bases = buildSignatureBases(input);
+    const baseLabel = input.mode === 'template' ? `template:${input.template}` : `mode:${input.mode}`;
+    for (const base of bases) {
+      candidates.push({ label: baseLabel, base, path: input.path });
+    }
+  }
+
+  return candidates;
+}
+
 function computeHmac(secret: string, base: string, format: 'utf8' | 'hex') {
   const key = format === 'hex' ? Buffer.from(secret, 'hex') : Buffer.from(secret, 'utf8');
   const hmac = crypto.createHmac('sha256', key);
@@ -243,6 +355,7 @@ export function verifyWebhookSignature(input: {
   signature?: string;
   timestampSec?: number | null;
   nonce?: string | null;
+  match?: SignatureMatch;
 } {
   const config = input.config ?? getWebhookSignatureConfig();
 
@@ -305,10 +418,10 @@ export function verifyWebhookSignature(input: {
     if (!pathCandidates.includes(shortPath)) pathCandidates.push(shortPath);
   }
 
-  const bases: string[] = [];
+  const candidates: SignatureBaseCandidate[] = [];
   for (const candidate of pathCandidates) {
-    bases.push(
-      ...buildSignatureBases({
+    candidates.push(
+      ...buildSignatureCandidates({
         mode: config.signatureMode,
         template: config.signatureTemplate,
         partnerId: config.partnerId,
@@ -326,12 +439,37 @@ export function verifyWebhookSignature(input: {
   const formats: Array<'utf8' | 'hex'> =
     config.secretFormat === 'hex' ? ['hex', 'utf8'] : ['utf8', 'hex'];
 
-  for (const base of bases) {
+  for (const candidate of candidates) {
     for (const format of formats) {
-      const { hex, base64 } = computeHmac(config.secret, base, format);
+      const { hex, base64 } = computeHmac(config.secret, candidate.base, format);
       const normalized = signature.toLowerCase();
-      if (safeEqual(normalized, hex.toLowerCase()) || safeEqual(signature, base64)) {
-        return { ok: true, signature, timestampSec, nonce };
+      if (safeEqual(normalized, hex.toLowerCase())) {
+        return {
+          ok: true,
+          signature,
+          timestampSec,
+          nonce,
+          match: {
+            label: candidate.label,
+            encoding: 'hex',
+            secretFormat: format,
+            path: candidate.path,
+          },
+        };
+      }
+      if (safeEqual(signature, base64)) {
+        return {
+          ok: true,
+          signature,
+          timestampSec,
+          nonce,
+          match: {
+            label: candidate.label,
+            encoding: 'base64',
+            secretFormat: format,
+            path: candidate.path,
+          },
+        };
       }
     }
   }

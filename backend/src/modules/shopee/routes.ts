@@ -58,6 +58,8 @@ router.post(['/webhook', '/push'], async (req: Request, res: Response) => {
       );
     });
     const signatureConfig = getWebhookSignatureConfig();
+    const signatureRaw = getHeaderValue(req.headers, signatureConfig.signatureHeaderCandidates);
+    const signaturePrefix = signatureRaw ? normalizeSignaturePrefix(signatureRaw) : null;
     const configuredSignatureHeaders = signatureConfig.signatureHeaderCandidates;
     const configuredTimestampHeaders = signatureConfig.timestampHeaderCandidates;
     const configuredNonceHeaders = signatureConfig.nonceHeaderCandidates;
@@ -75,6 +77,11 @@ router.post(['/webhook', '/push'], async (req: Request, res: Response) => {
       ip: req.ip,
       userAgent: req.get('user-agent') || undefined,
     });
+    logger.info('webhook_debug', {
+      headers: headerKeys.map((key) => key.toLowerCase()),
+      body_size: req.rawBody ? req.rawBody.length : 0,
+      sig_prefix: signaturePrefix,
+    });
   }
   try {
     const result = await service.handleWebhook({
@@ -85,6 +92,10 @@ router.post(['/webhook', '/push'], async (req: Request, res: Response) => {
       ip: req.ip,
       userAgent: req.get('user-agent') || undefined,
     });
+    if (result.status === 204) {
+      res.sendStatus(204);
+      return;
+    }
 
     res.status(result.status).json({
       success: result.ok,
@@ -124,6 +135,31 @@ router.head(['/webhook', '/push'], (req: Request, res: Response) => {
   }
   res.sendStatus(200);
 });
+
+function getHeaderValue(headers: Record<string, string | string[] | undefined>, candidates: string[]): string | null {
+  for (const name of candidates) {
+    const target = name.toLowerCase();
+    for (const [key, value] of Object.entries(headers)) {
+      if (key.toLowerCase() !== target) continue;
+      if (Array.isArray(value)) {
+        const first = value.find((item) => typeof item === 'string' && item.trim());
+        if (first) return first.trim();
+      } else if (typeof value === 'string' && value.trim()) {
+        return value.trim();
+      }
+    }
+  }
+  return null;
+}
+
+function normalizeSignaturePrefix(raw: string): string {
+  let normalized = raw.trim();
+  normalized = normalized.replace(/^bearer\s+/i, '');
+  normalized = normalized.replace(/^signature[:=\s]+/i, '');
+  normalized = normalized.replace(/^hmac[-_]?sha256[:=\s]+/i, '');
+  normalized = normalized.replace(/^sha256[:=\s]+/i, '');
+  return normalized.slice(0, 6);
+}
 
 function requireAdmin(req: Request): void {
   const secret = process.env.OAUTH_ADMIN_SECRET;

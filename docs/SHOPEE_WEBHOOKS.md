@@ -49,6 +49,12 @@ Recomendadas:
 - `SHOPEE_WEBHOOK_ALLOW_UNSIGNED`  
   Default `false`. Use apenas em dev.
 
+Verify bypass (apenas para o botao Verify do console Shopee):
+- `SHOPEE_WEBHOOK_VERIFY_BYPASS_ENABLED`
+  Default `false`. Quando `true`, permite resposta 204 somente se o request nao tiver timestamp ou assinatura.
+- `SHOPEE_WEBHOOK_VERIFY_BYPASS_IP_ALLOWLIST`
+  Lista de IPs permitidos (CSV). Ex: `202.181.90.36`.
+
 Worker:
 - `SHOPEE_WEBHOOK_WORKER_ENABLED` (default `true`)
 - `SHOPEE_WEBHOOK_WORKER_INTERVAL_MS` (default `5000`)
@@ -79,6 +85,14 @@ UPDATE shopee_webhook_events
 SET status = 'PENDING'
 WHERE status = 'FAILED';
 ```
+
+## Verify do console Shopee (sem timestamp/assinatura)
+1. Defina `SHOPEE_WEBHOOK_VERIFY_BYPASS_ENABLED=true`.
+2. Defina `SHOPEE_WEBHOOK_VERIFY_BYPASS_IP_ALLOWLIST=<ip do verify>`.
+3. Clique em Verify no console Shopee.
+4. Confirme log `webhook_verify_bypass` e status 204.
+5. Desative o bypass: `SHOPEE_WEBHOOK_VERIFY_BYPASS_ENABLED=false`.
+6. Garanta `SHOPEE_WEBHOOK_REQUIRE_TIMESTAMP=true` e `SHOPEE_WEBHOOK_ALLOW_UNSIGNED=false`.
 
 ## Observabilidade
 Logs:
