@@ -48,34 +48,27 @@ function getHeaderValue(headers: HeaderMap, candidates: string[]): string | null
   return null;
 }
 
-function getClientIp(input: WebhookHandleInput): string | null {
-  const forwarded = getHeaderValue(input.headers, ['x-forwarded-for']);
-  if (forwarded) {
-    const first = forwarded.split(',')[0]?.trim();
-    if (first) return first;
-  }
-  if (input.ip && input.ip.trim()) return input.ip.trim();
-  return null;
-}
-
 function parseAllowlist(raw: string | undefined): string[] {
   if (!raw) return [];
   return raw
     .split(',')
-    .map((item) => item.trim())
+    .map((entry) => entry.trim())
     .filter(Boolean);
 }
 
-function isVerifyBypassAllowed(input: WebhookHandleInput): boolean {
-  const enabled = String(process.env.SHOPEE_WEBHOOK_VERIFY_BYPASS_ENABLED || '')
-    .trim()
-    .toLowerCase() === 'true';
-  if (!enabled) return false;
-  const allowlist = parseAllowlist(process.env.SHOPEE_WEBHOOK_VERIFY_BYPASS_IP_ALLOWLIST);
-  if (allowlist.length === 0) return false;
-  const clientIp = getClientIp(input);
-  if (!clientIp) return false;
-  return allowlist.includes(clientIp);
+function normalizeIp(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith('::ffff:')) return trimmed.slice('::ffff:'.length);
+  return trimmed;
+}
+
+function extractForwardedIp(headers: HeaderMap): string | null {
+  const forwarded = getHeaderValue(headers, ['x-forwarded-for', 'x-real-ip']);
+  if (!forwarded) return null;
+  const first = forwarded.split(',')[0]?.trim();
+  return normalizeIp(first);
 }
 
 export class ShopeeWebhookService {
@@ -92,21 +85,28 @@ export class ShopeeWebhookService {
     });
 
     if (!verification.ok) {
+      const bypassEnabled = String(process.env.SHOPEE_WEBHOOK_VERIFY_BYPASS_ENABLED || '').trim().toLowerCase() === 'true';
+      const allowlist = parseAllowlist(process.env.SHOPEE_WEBHOOK_VERIFY_BYPASS_IP_ALLOWLIST);
+      const forwardedIp = extractForwardedIp(input.headers);
+      const requestIp = normalizeIp(input.ip || '') || forwardedIp;
       const reason = verification.reason || '';
-      if (
-        (reason === 'timestamp_missing' || reason === 'signature_missing') &&
-        isVerifyBypassAllowed(input)
-      ) {
+      const isMissing = reason === 'timestamp_missing' || reason === 'signature_missing';
+      const allowlisted = !!requestIp && allowlist.some((ip) => ip === requestIp);
+
+      if (bypassEnabled && isMissing && allowlisted) {
         logger.warn('webhook_verify_bypass', {
           reason,
-          ip: getClientIp(input),
+          ip: requestIp,
+          forwardedIp,
+          userAgent: input.userAgent,
         });
         return { ok: true, status: 204, reason: 'verify_bypass' };
       }
+
       logger.warn('webhook_invalid', {
         reason: verification.reason,
         signature: verification.signature ? '[present]' : '[missing]',
-        ip: input.ip,
+        ip: requestIp || input.ip,
       });
       return { ok: false, status: 401, error: 'assinatura inválida', reason: verification.reason };
     }

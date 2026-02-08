@@ -92,10 +92,6 @@ router.post(['/webhook', '/push'], async (req: Request, res: Response) => {
       ip: req.ip,
       userAgent: req.get('user-agent') || undefined,
     });
-    if (result.status === 204) {
-      res.sendStatus(204);
-      return;
-    }
 
     res.status(result.status).json({
       success: result.ok,
