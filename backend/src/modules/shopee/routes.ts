@@ -44,6 +44,7 @@ router.post(['/webhook', '/push'], async (req: Request, res: Response) => {
   const prisma = getPrismaClient();
   const service = new ShopeeWebhookService(prisma);
   const path = String(req.originalUrl || req.path || '/api/shopee/webhook').split('?')[0];
+  const clientIp = getClientIp(req);
   const logHits = String(process.env.SHOPEE_WEBHOOK_LOG_HITS || '').trim().toLowerCase() === 'true';
   if (logHits) {
     const headerKeys = Object.keys(req.headers || {});
@@ -74,7 +75,7 @@ router.post(['/webhook', '/push'], async (req: Request, res: Response) => {
       configuredSignatureHeaders,
       configuredTimestampHeaders,
       configuredNonceHeaders,
-      ip: req.ip,
+      ip: clientIp,
       userAgent: req.get('user-agent') || undefined,
     });
     logger.info('webhook_debug', {
@@ -89,9 +90,14 @@ router.post(['/webhook', '/push'], async (req: Request, res: Response) => {
       rawBody: req.rawBody,
       body: req.body,
       path,
-      ip: req.ip,
+      ip: clientIp,
       userAgent: req.get('user-agent') || undefined,
     });
+
+    if (result.status === 204) {
+      res.sendStatus(204);
+      return;
+    }
 
     res.status(result.status).json({
       success: result.ok,
@@ -112,7 +118,7 @@ router.get(['/webhook', '/push'], (req: Request, res: Response) => {
     logger.info('webhook_hit', {
       method: 'GET',
       path: String(req.originalUrl || req.path || '/api/shopee/webhook'),
-      ip: req.ip,
+      ip: getClientIp(req),
       userAgent: req.get('user-agent') || undefined,
     });
   }
@@ -125,12 +131,21 @@ router.head(['/webhook', '/push'], (req: Request, res: Response) => {
     logger.info('webhook_hit', {
       method: 'HEAD',
       path: String(req.originalUrl || req.path || '/api/shopee/webhook'),
-      ip: req.ip,
+      ip: getClientIp(req),
       userAgent: req.get('user-agent') || undefined,
     });
   }
   res.sendStatus(200);
 });
+
+function getClientIp(req: Request): string | undefined {
+  const forwarded = req.headers['x-forwarded-for'];
+  const first = Array.isArray(forwarded) ? forwarded[0] : forwarded;
+  if (typeof first === 'string' && first.trim()) {
+    return first.split(',')[0].trim();
+  }
+  return req.ip || undefined;
+}
 
 function getHeaderValue(headers: Record<string, string | string[] | undefined>, candidates: string[]): string | null {
   for (const name of candidates) {

@@ -54,7 +54,7 @@ Verify bypass (apenas para o botao Verify do console Shopee):
   Default `false`. Quando `true`, permite resposta 204 somente se o request nao tiver timestamp ou assinatura.
 - `SHOPEE_WEBHOOK_VERIFY_BYPASS_IP_ALLOWLIST`
   Lista de IPs permitidos (CSV). Ex: `202.181.90.36`.
-  O IP usado para comparacao e o primeiro de `x-forwarded-for` (quando presente).
+  O IP avaliado e o primeiro de `x-forwarded-for` (quando presente), senao `req.ip`.
 
 Worker:
 - `SHOPEE_WEBHOOK_WORKER_ENABLED` (default `true`)

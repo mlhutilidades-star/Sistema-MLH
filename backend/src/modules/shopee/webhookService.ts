@@ -32,43 +32,38 @@ export type WebhookHandleResult = {
   reason?: string;
 };
 
-function getHeaderValue(headers: HeaderMap, candidates: string[]): string | null {
-  for (const name of candidates) {
-    const target = name.toLowerCase();
-    for (const [key, value] of Object.entries(headers)) {
-      if (key.toLowerCase() !== target) continue;
-      if (Array.isArray(value)) {
-        const first = value.find((item) => typeof item === 'string' && item.trim());
-        if (first) return first.trim();
-      } else if (typeof value === 'string' && value.trim()) {
-        return value.trim();
-      }
-    }
-  }
-  return null;
-}
-
-function parseAllowlist(raw: string | undefined): string[] {
-  if (!raw) return [];
-  return raw
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-}
-
-function normalizeIp(value: string | null | undefined): string | null {
+function normalizeIp(value?: string): string | null {
   if (!value) return null;
   const trimmed = value.trim();
   if (!trimmed) return null;
-  if (trimmed.startsWith('::ffff:')) return trimmed.slice('::ffff:'.length);
-  return trimmed;
+  const withoutPort = trimmed.includes('.') && trimmed.includes(':') ? trimmed.split(':')[0] : trimmed;
+  if (withoutPort.toLowerCase().startsWith('::ffff:')) return withoutPort.slice(7);
+  return withoutPort;
 }
 
-function extractForwardedIp(headers: HeaderMap): string | null {
-  const forwarded = getHeaderValue(headers, ['x-forwarded-for', 'x-real-ip']);
-  if (!forwarded) return null;
-  const first = forwarded.split(',')[0]?.trim();
-  return normalizeIp(first);
+function parseAllowlist(raw: string | undefined): Set<string> {
+  if (!raw) return new Set();
+  const entries = raw
+    .split(',')
+    .map((item) => normalizeIp(item))
+    .filter((item): item is string => !!item);
+  return new Set(entries.map((entry) => entry.toLowerCase()));
+}
+
+function isVerifyBypassAllowed(input: {
+  reason?: string;
+  ip?: string;
+}): boolean {
+  const enabled = String(process.env.SHOPEE_WEBHOOK_VERIFY_BYPASS_ENABLED || '').trim().toLowerCase() === 'true';
+  if (!enabled) return false;
+  if (!input.reason || (input.reason !== 'timestamp_missing' && input.reason !== 'signature_missing')) {
+    return false;
+  }
+  const allowlist = parseAllowlist(process.env.SHOPEE_WEBHOOK_VERIFY_BYPASS_IP_ALLOWLIST);
+  if (allowlist.size === 0) return false;
+  const ip = normalizeIp(input.ip);
+  if (!ip) return false;
+  return allowlist.has(ip.toLowerCase());
 }
 
 export class ShopeeWebhookService {
@@ -85,28 +80,18 @@ export class ShopeeWebhookService {
     });
 
     if (!verification.ok) {
-      const bypassEnabled = String(process.env.SHOPEE_WEBHOOK_VERIFY_BYPASS_ENABLED || '').trim().toLowerCase() === 'true';
-      const allowlist = parseAllowlist(process.env.SHOPEE_WEBHOOK_VERIFY_BYPASS_IP_ALLOWLIST);
-      const forwardedIp = extractForwardedIp(input.headers);
-      const requestIp = normalizeIp(input.ip || '') || forwardedIp;
-      const reason = verification.reason || '';
-      const isMissing = reason === 'timestamp_missing' || reason === 'signature_missing';
-      const allowlisted = !!requestIp && allowlist.some((ip) => ip === requestIp);
-
-      if (bypassEnabled && isMissing && allowlisted) {
+      if (isVerifyBypassAllowed({ reason: verification.reason, ip: input.ip })) {
         logger.warn('webhook_verify_bypass', {
-          reason,
-          ip: requestIp,
-          forwardedIp,
+          reason: verification.reason,
+          ip: input.ip,
           userAgent: input.userAgent,
         });
         return { ok: true, status: 204, reason: 'verify_bypass' };
       }
-
       logger.warn('webhook_invalid', {
         reason: verification.reason,
         signature: verification.signature ? '[present]' : '[missing]',
-        ip: requestIp || input.ip,
+        ip: input.ip,
       });
       return { ok: false, status: 401, error: 'assinatura inválida', reason: verification.reason };
     }
