@@ -427,8 +427,11 @@ export function verifyWebhookSignature(input: {
 
   const nowSec = Math.floor(Date.now() / 1000);
   const skewSec = timestampSec ? Math.abs(nowSec - timestampSec) : null;
+  const timestampStale = timestampSec && skewSec !== null
+    && Number.isFinite(config.maxSkewSec) && config.maxSkewSec > 0
+    && skewSec > config.maxSkewSec;
 
-  // Log timestamp diagnostics (imported logger at top of file)
+  // Log timestamp diagnostics
   if (typeof globalThis !== 'undefined') {
     try {
       const { logger: tsLogger } = require('../../shared/logger');
@@ -438,7 +441,7 @@ export function verifyWebhookSignature(input: {
         nowSec,
         skewSec,
         maxSkewSec: config.maxSkewSec,
-        decision: !timestampSec ? 'missing' : (skewSec! > config.maxSkewSec ? 'out_of_range' : 'ok'),
+        decision: !timestampSec ? 'missing' : (timestampStale ? 'stale_will_try_hmac' : 'ok'),
       });
     } catch { /* ignore */ }
   }
@@ -450,14 +453,9 @@ export function verifyWebhookSignature(input: {
     return { ok: false, reason: 'timestamp_missing', signature };
   }
 
-  if (timestampSec && skewSec !== null) {
-    if (Number.isFinite(config.maxSkewSec) && config.maxSkewSec > 0 && skewSec > config.maxSkewSec) {
-      if (config.allowUnsigned) {
-        return { ok: true, reason: 'timestamp_out_of_range_allow_unsigned', signature, timestampSec };
-      }
-      return { ok: false, reason: 'timestamp_out_of_range', signature, timestampSec };
-    }
-  }
+  // NOTE: timestamp freshness check moved AFTER HMAC verification.
+  // If HMAC is valid the event is authentic (timestamp is bound into the HMAC),
+  // so we accept it even if the timestamp is stale (e.g. Shopee test pushes).
 
   const nonceHeader = getHeaderValue(input.headers, config.nonceHeaderCandidates);
   const nonceFallback = extractPayloadNonce(input.payload);
@@ -502,6 +500,16 @@ export function verifyWebhookSignature(input: {
       const { hex, base64 } = computeHmac(config.secret, candidate.base, format);
       const normalized = signature.toLowerCase();
       if (safeEqual(normalized, hex.toLowerCase())) {
+        // HMAC matched — event is authentic. Warn if timestamp stale but accept.
+        if (timestampStale) {
+          try {
+            const { logger: tsWarnLogger } = require('../../shared/logger');
+            tsWarnLogger.warn('webhook_timestamp_stale_accepted', {
+              skewSec, timestampSec, maxSkewSec: config.maxSkewSec,
+              label: candidate.label,
+            });
+          } catch { /* ignore */ }
+        }
         return {
           ok: true,
           signature,
@@ -516,6 +524,15 @@ export function verifyWebhookSignature(input: {
         };
       }
       if (safeEqual(signature, base64)) {
+        if (timestampStale) {
+          try {
+            const { logger: tsWarnLogger } = require('../../shared/logger');
+            tsWarnLogger.warn('webhook_timestamp_stale_accepted', {
+              skewSec, timestampSec, maxSkewSec: config.maxSkewSec,
+              label: candidate.label,
+            });
+          } catch { /* ignore */ }
+        }
         return {
           ok: true,
           signature,
@@ -535,6 +552,12 @@ export function verifyWebhookSignature(input: {
   if (config.allowUnsigned) {
     return { ok: true, reason: 'signature_mismatch_allow_unsigned', signature, timestampSec, nonce };
   }
+
+  // If timestamp was stale, report that as the reason (HMAC base changes with timestamp)
+  if (timestampStale) {
+    return { ok: false, reason: 'timestamp_out_of_range', signature, timestampSec, nonce };
+  }
+
   return { ok: false, reason: 'signature_mismatch', signature, timestampSec, nonce };
 }
 
