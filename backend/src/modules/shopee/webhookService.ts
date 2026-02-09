@@ -56,7 +56,13 @@ function isVerifyBypassAllowed(input: {
 }): boolean {
   const enabled = String(process.env.SHOPEE_WEBHOOK_VERIFY_BYPASS_ENABLED || '').trim().toLowerCase() === 'true';
   if (!enabled) return false;
-  if (!input.reason || (input.reason !== 'timestamp_missing' && input.reason !== 'signature_missing')) {
+  const bypassReasons = new Set([
+    'timestamp_missing',
+    'signature_missing',
+    'timestamp_out_of_range',
+    'signature_mismatch',
+  ]);
+  if (!input.reason || !bypassReasons.has(input.reason)) {
     return false;
   }
   const allowlist = parseAllowlist(process.env.SHOPEE_WEBHOOK_VERIFY_BYPASS_IP_ALLOWLIST);
@@ -85,13 +91,15 @@ export class ShopeeWebhookService {
           reason: verification.reason,
           ip: input.ip,
           userAgent: input.userAgent,
+          timestampSec: verification.timestampSec ?? null,
         });
-        return { ok: true, status: 204, reason: 'verify_bypass' };
+        return { ok: true, status: 200, reason: 'verify_bypass' };
       }
       logger.warn('webhook_invalid', {
         reason: verification.reason,
         signature: verification.signature ? '[present]' : '[missing]',
         ip: input.ip,
+        timestampSec: verification.timestampSec ?? null,
       });
       return { ok: false, status: 401, error: 'assinatura inválida', reason: verification.reason };
     }

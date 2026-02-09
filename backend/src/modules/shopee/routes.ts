@@ -55,7 +55,9 @@ router.post(['/webhook', '/push'], async (req: Request, res: Response) => {
         lower.includes('sign') ||
         lower.includes('timestamp') ||
         lower.includes('nonce') ||
-        lower.startsWith('x-shopee')
+        lower.startsWith('x-shopee') ||
+        lower === 'authorization' ||
+        lower === 'x-authorization'
       );
     });
     const signatureConfig = getWebhookSignatureConfig();
@@ -78,10 +80,19 @@ router.post(['/webhook', '/push'], async (req: Request, res: Response) => {
       ip: clientIp,
       userAgent: req.get('user-agent') || undefined,
     });
+    const authHeader = req.get('authorization') || undefined;
+    const authPrefix = authHeader ? authHeader.slice(0, 12) : undefined;
+    let bodyTimestamp: unknown = undefined;
+    if (req.body && typeof req.body === 'object') {
+      bodyTimestamp = req.body.timestamp ?? req.body.ts ?? req.body.time ?? undefined;
+    }
     logger.info('webhook_debug', {
       headers: headerKeys.map((key) => key.toLowerCase()),
       body_size: req.rawBody ? req.rawBody.length : 0,
       sig_prefix: signaturePrefix,
+      auth_prefix: authPrefix,
+      body_timestamp: bodyTimestamp,
+      body_has_signature: !!(req.body && typeof req.body === 'object' && (req.body.signature || req.body.sign)),
     });
   }
   try {
