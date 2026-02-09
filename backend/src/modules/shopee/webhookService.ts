@@ -67,6 +67,7 @@ function isVerifyBypassAllowed(input: {
   }
   const allowlist = parseAllowlist(process.env.SHOPEE_WEBHOOK_VERIFY_BYPASS_IP_ALLOWLIST);
   if (allowlist.size === 0) return false;
+  if (allowlist.has('*')) return true; // wildcard: any IP while bypass is enabled
   const ip = normalizeIp(input.ip);
   if (!ip) return false;
   return allowlist.has(ip.toLowerCase());
