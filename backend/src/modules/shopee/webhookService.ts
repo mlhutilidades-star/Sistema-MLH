@@ -12,6 +12,35 @@ import {
 } from './webhookUtils';
 import { recordWebhookReceived } from './webhookMetrics';
 
+/**
+ * Detect Shopee verify/test pings that should return 200 without full validation.
+ * Shopee verify pushes have minimal payloads like {shop_id, code} or {"test":true}
+ * and lack event-specific fields (event_type, data, message_id, etc.).
+ */
+function isVerifyPing(payload: unknown): { isPing: boolean; reason?: string } {
+  if (!payload || typeof payload !== 'object') return { isPing: false };
+  const obj = payload as Record<string, unknown>;
+  const keys = Object.keys(obj);
+
+  // Shopee verify ping: {shop_id, code} or similar minimal structures
+  const eventIndicators = [
+    'event_type', 'eventType', 'type', 'event', 'topic', 'message_type',
+    'data', 'message_id', 'msg_id', 'item_id', 'order_sn',
+  ];
+  const hasEventData = eventIndicators.some((k) => k in obj && obj[k] !== undefined && obj[k] !== null);
+
+  if (!hasEventData && keys.length <= 5) {
+    return { isPing: true, reason: `no_event_fields:keys=[${keys.join(',')}]` };
+  }
+
+  // Also detect explicit test payloads
+  if ('test' in obj && keys.length <= 3) {
+    return { isPing: true, reason: 'test_payload' };
+  }
+
+  return { isPing: false };
+}
+
 type HeaderMap = Record<string, string | string[] | undefined>;
 
 export type WebhookHandleInput = {
@@ -79,6 +108,20 @@ export class ShopeeWebhookService {
   async handleWebhook(input: WebhookHandleInput): Promise<WebhookHandleResult> {
     const rawBody = input.rawBody ? input.rawBody.toString('utf8') : JSON.stringify(input.body ?? {});
     const payload = normalizePayload(input.body);
+
+    // --- Verify Ping Detection (BEFORE signature validation) ---
+    const pingCheck = isVerifyPing(payload);
+    if (pingCheck.isPing) {
+      logger.info('webhook_verify_ping', {
+        ip: input.ip,
+        userAgent: input.userAgent,
+        reason: pingCheck.reason,
+        bodySize: rawBody.length,
+      });
+      return { ok: true, status: 200, reason: 'verify_ping' };
+    }
+
+    // --- Full signature validation for real events ---
     const verification = verifyWebhookSignature({
       headers: input.headers,
       rawBody,
@@ -101,6 +144,10 @@ export class ShopeeWebhookService {
         signature: verification.signature ? '[present]' : '[missing]',
         ip: input.ip,
         timestampSec: verification.timestampSec ?? null,
+        nowSec: Math.floor(Date.now() / 1000),
+        skewSec: verification.timestampSec
+          ? Math.abs(Math.floor(Date.now() / 1000) - verification.timestampSec)
+          : null,
       });
       return { ok: false, status: 401, error: 'assinatura inválida', reason: verification.reason };
     }

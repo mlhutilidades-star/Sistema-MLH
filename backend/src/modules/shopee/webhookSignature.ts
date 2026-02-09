@@ -97,7 +97,7 @@ export function getWebhookSignatureConfig(): WebhookSignatureConfig {
     signatureMode,
     signatureTemplate: String(process.env.SHOPEE_WEBHOOK_SIGNATURE_TEMPLATE || '${partner_id}${path}${timestamp}${body}'),
     signatureEncoding: (String(process.env.SHOPEE_WEBHOOK_SIGNATURE_ENCODING || 'hex').trim().toLowerCase() as 'hex' | 'base64'),
-    maxSkewSec: Number(process.env.SHOPEE_WEBHOOK_MAX_SKEW_SEC || 300),
+    maxSkewSec: Number(process.env.SHOPEE_WEBHOOK_MAX_SKEW_SEC || 900),
     requireTimestamp: parseBool(process.env.SHOPEE_WEBHOOK_REQUIRE_TIMESTAMP, true),
     allowUnsigned: parseBool(process.env.SHOPEE_WEBHOOK_ALLOW_UNSIGNED, false),
   };
@@ -138,13 +138,43 @@ function parseTimestamp(raw: string | number | null | undefined): number | null 
   return n > 1_000_000_000_000 ? Math.floor(n / 1000) : Math.floor(n);
 }
 
-function extractPayloadTimestamp(payload: unknown): string | number | null {
+function extractPayloadTimestamp(payload: unknown): { value: string | number; source: string } | null {
   if (!payload || typeof payload !== 'object') return null;
   const anyPayload = payload as Record<string, any>;
-  const direct = anyPayload.timestamp ?? anyPayload.ts ?? anyPayload.time;
-  if (typeof direct === 'string' || typeof direct === 'number') return direct;
-  const nested = anyPayload.data?.timestamp ?? anyPayload.data?.ts ?? anyPayload.data?.time;
-  if (typeof nested === 'string' || typeof nested === 'number') return nested;
+
+  // Direct top-level fields (in priority order)
+  const directCandidates: Array<[string, unknown]> = [
+    ['timestamp', anyPayload.timestamp],
+    ['ts', anyPayload.ts],
+    ['time', anyPayload.time],
+    ['event_time', anyPayload.event_time],
+    ['eventTime', anyPayload.eventTime],
+    ['created_at', anyPayload.created_at],
+    ['createdAt', anyPayload.createdAt],
+    ['update_time', anyPayload.update_time],
+  ];
+  for (const [key, val] of directCandidates) {
+    if ((typeof val === 'string' && val.trim()) || typeof val === 'number') {
+      return { value: val, source: `body.${key}` };
+    }
+  }
+
+  // Nested under .data
+  if (anyPayload.data && typeof anyPayload.data === 'object') {
+    const nestedCandidates: Array<[string, unknown]> = [
+      ['data.timestamp', anyPayload.data.timestamp],
+      ['data.ts', anyPayload.data.ts],
+      ['data.time', anyPayload.data.time],
+      ['data.event_time', anyPayload.data.event_time],
+      ['data.created_at', anyPayload.data.created_at],
+    ];
+    for (const [key, val] of nestedCandidates) {
+      if ((typeof val === 'string' && val.trim()) || typeof val === 'number') {
+        return { value: val, source: key };
+      }
+    }
+  }
+
   return null;
 }
 
@@ -377,23 +407,51 @@ export function verifyWebhookSignature(input: {
   }
 
   const signature = normalizeSignature(signatureRaw);
+
+  // --- Timestamp resolution with diagnostics ---
   const timestampHeader = getHeaderValue(input.headers, config.timestampHeaderCandidates);
-  let timestampSec = parseTimestamp(timestampHeader);
+  let timestampSec: number | null = null;
+  let timestampSource: string = 'none';
+
+  if (timestampHeader) {
+    timestampSec = parseTimestamp(timestampHeader);
+    if (timestampSec) timestampSource = 'header';
+  }
   if (!timestampSec) {
-    timestampSec = parseTimestamp(extractPayloadTimestamp(input.payload));
+    const bodyTs = extractPayloadTimestamp(input.payload);
+    if (bodyTs) {
+      timestampSec = parseTimestamp(bodyTs.value);
+      if (timestampSec) timestampSource = bodyTs.source;
+    }
+  }
+
+  const nowSec = Math.floor(Date.now() / 1000);
+  const skewSec = timestampSec ? Math.abs(nowSec - timestampSec) : null;
+
+  // Log timestamp diagnostics (imported logger at top of file)
+  if (typeof globalThis !== 'undefined') {
+    try {
+      const { logger: tsLogger } = require('../../shared/logger');
+      tsLogger.info('webhook_timestamp_diag', {
+        timestampSource,
+        timestampSec,
+        nowSec,
+        skewSec,
+        maxSkewSec: config.maxSkewSec,
+        decision: !timestampSec ? 'missing' : (skewSec! > config.maxSkewSec ? 'out_of_range' : 'ok'),
+      });
+    } catch { /* ignore */ }
   }
 
   if (config.requireTimestamp && !timestampSec) {
     if (config.allowUnsigned) {
       return { ok: true, reason: 'timestamp_missing_allow_unsigned' };
     }
-    return { ok: false, reason: 'timestamp_missing' };
+    return { ok: false, reason: 'timestamp_missing', signature };
   }
 
-  if (timestampSec) {
-    const now = Math.floor(Date.now() / 1000);
-    const skew = Math.abs(now - timestampSec);
-    if (Number.isFinite(config.maxSkewSec) && config.maxSkewSec > 0 && skew > config.maxSkewSec) {
+  if (timestampSec && skewSec !== null) {
+    if (Number.isFinite(config.maxSkewSec) && config.maxSkewSec > 0 && skewSec > config.maxSkewSec) {
       if (config.allowUnsigned) {
         return { ok: true, reason: 'timestamp_out_of_range_allow_unsigned', signature, timestampSec };
       }
