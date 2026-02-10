@@ -117,14 +117,40 @@ function isVerifyPingCandidate(payload: unknown): { ok: boolean; reason: string 
   ]);
   if (keys.some((k) => hardEventIndicators.has(k))) return { ok: false, reason: 'has_event_fields' };
 
-  // Alguns verifies podem incluir `data: {}`; permitir apenas se vazio.
+  // Alguns verifies chegam como: { code, data: { shop_id, partner_id, request_id, timestamp... } }
+  // Permitir `data` se for objeto pequeno com chaves “seguras” e valores primitivos.
+  const allowedNestedDataKeys = new Set([
+    'shop_id',
+    'shopId',
+    'partner_id',
+    'partnerId',
+    'request_id',
+    'requestId',
+    'timestamp',
+    'ts',
+    'time',
+    'event_time',
+    'eventTime',
+    'created_at',
+    'createdAt',
+    'message',
+    'success',
+  ]);
   if ('data' in obj) {
     const dataValue = obj.data;
     if (dataValue == null) {
       // ok
     } else if (typeof dataValue === 'object' && !Array.isArray(dataValue)) {
-      if (Object.keys(dataValue as Record<string, unknown>).length > 0) {
-        return { ok: false, reason: 'data_non_empty' };
+      const dataObj = dataValue as Record<string, unknown>;
+      const dataKeys = Object.keys(dataObj);
+      if (dataKeys.length > 25) return { ok: false, reason: 'data_too_large' };
+      const unknownNested = dataKeys.filter((k) => !allowedNestedDataKeys.has(k));
+      if (unknownNested.length > 0) return { ok: false, reason: 'data_unexpected_fields' };
+      for (const value of Object.values(dataObj)) {
+        if (value == null) continue;
+        const valueType = typeof value;
+        if (valueType === 'string' || valueType === 'number' || valueType === 'boolean') continue;
+        return { ok: false, reason: 'data_non_primitive_field' };
       }
     } else {
       return { ok: false, reason: 'data_invalid' };
@@ -157,9 +183,12 @@ function isVerifyPingCandidate(payload: unknown): { ok: boolean; reason: string 
     return { ok: false, reason: 'non_primitive_field' };
   }
 
-  // Estrutura típica de verify/ping: { shop_id, code } (com ou sem timestamp)
+  // Estrutura típica de verify/ping: { shop_id, code } ou { code, data: {...} }
   if ('shop_id' in obj || 'shopId' in obj || 'code' in obj) {
     return { ok: true, reason: 'simple_verify_shape' };
+  }
+  if ('code' in obj && 'data' in obj) {
+    return { ok: true, reason: 'code_data_verify_shape' };
   }
 
   return { ok: false, reason: 'not_verify_shape' };
