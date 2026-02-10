@@ -78,44 +78,84 @@ function getPayloadKeys(payload: unknown, limit: number = 40): string[] {
   return Object.keys(payload as Record<string, unknown>).slice(0, limit);
 }
 
+function getHeaderValue(headers: HeaderMap, name: string): string | null {
+  const target = name.toLowerCase();
+  for (const [key, value] of Object.entries(headers || {})) {
+    if (key.toLowerCase() !== target) continue;
+    if (typeof value === 'string') return value;
+    if (Array.isArray(value)) return value[0] ?? null;
+    return null;
+  }
+  return null;
+}
+
+function hasSignatureHeader(headers: HeaderMap): boolean {
+  const candidates = ['authorization', 'x-authorization', 'x-shopee-authorization', 'x-shopee-signature'];
+  return candidates.some((name) => {
+    const value = getHeaderValue(headers, name);
+    return !!(value && String(value).trim());
+  });
+}
+
 function isVerifyPingCandidate(payload: unknown): { ok: boolean; reason: string } {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return { ok: false, reason: 'not_object' };
   const obj = payload as Record<string, unknown>;
   const keys = Object.keys(obj);
   if (keys.length === 0) return { ok: true, reason: 'empty_object' };
 
-  const eventIndicators = new Set([
+  // Verificações de console costumam ser payloads pequenos, sem indicadores de evento.
+  // Para evitar ignorar eventos reais: não aceitar nada que pareça “evento”.
+  const hardEventIndicators = new Set([
     'event_type',
     'eventType',
     'message_type',
+    'messageType',
     'topic',
     'type',
     'event',
-    'data',
-    'message_id',
-    'messageId',
-    'event_id',
-    'eventId',
-    'nonce',
+    'events',
   ]);
-  if (keys.some((k) => eventIndicators.has(k))) return { ok: false, reason: 'has_event_fields' };
+  if (keys.some((k) => hardEventIndicators.has(k))) return { ok: false, reason: 'has_event_fields' };
 
-  const allowed = new Set([
-    'shop_id',
-    'shopId',
-    'code',
-    'success',
-    'message',
-    'timestamp',
-    'ts',
-    'time',
-    'event_time',
-    'eventTime',
-    'created_at',
-    'createdAt',
+  // Alguns verifies podem incluir `data: {}`; permitir apenas se vazio.
+  if ('data' in obj) {
+    const dataValue = obj.data;
+    if (dataValue == null) {
+      // ok
+    } else if (typeof dataValue === 'object' && !Array.isArray(dataValue)) {
+      if (Object.keys(dataValue as Record<string, unknown>).length > 0) {
+        return { ok: false, reason: 'data_non_empty' };
+      }
+    } else {
+      return { ok: false, reason: 'data_invalid' };
+    }
+  }
+
+  // Bloquear chaves típicas de eventos de domínio.
+  const domainEventKeys = new Set([
+    'order_sn',
+    'ordersn',
+    'orderSn',
+    'orders',
+    'item_id',
+    'itemId',
+    'item_ids',
+    'itemIds',
+    'model_id',
+    'modelId',
+    'model_ids',
+    'modelIds',
   ]);
-  const unknown = keys.filter((k) => !allowed.has(k));
-  if (unknown.length > 0) return { ok: false, reason: 'unexpected_fields' };
+  if (keys.some((k) => domainEventKeys.has(k))) return { ok: false, reason: 'has_domain_event_fields' };
+
+  // Permitir chaves extras comuns, desde que sejam primitivas (sem objetos/arrays).
+  for (const [key, value] of Object.entries(obj)) {
+    if (key === 'data') continue;
+    if (value == null) continue;
+    const valueType = typeof value;
+    if (valueType === 'string' || valueType === 'number' || valueType === 'boolean') continue;
+    return { ok: false, reason: 'non_primitive_field' };
+  }
 
   // Estrutura típica de verify/ping: { shop_id, code } (com ou sem timestamp)
   if ('shop_id' in obj || 'shopId' in obj || 'code' in obj) {
@@ -132,9 +172,11 @@ export class ShopeeWebhookService {
     const rawBody = input.rawBody ? input.rawBody.toString('utf8') : JSON.stringify(input.body ?? {});
     const payload = normalizePayload(input.body);
 
+    const signaturePresent = hasSignatureHeader(input.headers);
+
     // Verify ping/test do console (sem bypass): responder 200 e não persistir.
     const pingCandidate = isVerifyPingCandidate(payload);
-    if (pingCandidate.ok && rawBody.length <= 2048) {
+    if (pingCandidate.ok && rawBody.length <= 2048 && !signaturePresent) {
       const ts = extractTimestampSec({
         headers: input.headers,
         payload,
@@ -147,6 +189,7 @@ export class ShopeeWebhookService {
         userAgent: input.userAgent,
         rawBodyLength: rawBody.length,
         payloadKeys: getPayloadKeys(payload),
+        signaturePresent,
         timestamp_source: ts.source,
         timestampSec: ts.timestampSec,
       });

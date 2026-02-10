@@ -201,11 +201,6 @@ export function extractTimestampSec(input: {
   return { timestampSec: null, source: 'missing' };
 }
 
-function extractPayloadTimestamp(payload: unknown): string | number | null {
-  const extracted = extractPayloadTimestampWithKey(payload);
-  return extracted ? extracted.value : null;
-}
-
 function extractPayloadNonce(payload: unknown): string | number | null {
   if (!payload || typeof payload !== 'object') return null;
   const anyPayload = payload as Record<string, any>;
