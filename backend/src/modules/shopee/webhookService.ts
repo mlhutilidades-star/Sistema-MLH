@@ -123,8 +123,45 @@ function isVerifyPingCandidate(payload: unknown): { ok: boolean; reason: string 
     if (dataValue == null) {
       // ok
     } else if (typeof dataValue === 'object' && !Array.isArray(dataValue)) {
-      if (Object.keys(dataValue as Record<string, unknown>).length > 0) {
-        return { ok: false, reason: 'data_non_empty' };
+      // Verify da Shopee costuma enviar payload pequeno com apenas { code, data }.
+      // Nesses casos, `data` pode vir preenchido (challenge/metadata). Permitimos
+      // desde que NÃO pareça um evento de domínio e contenha apenas valores primitivos.
+      const dataObj = dataValue as Record<string, unknown>;
+      const dataKeys = Object.keys(dataObj);
+      const forbiddenDataKeys = new Set([
+        'event_type',
+        'eventType',
+        'message_type',
+        'messageType',
+        'topic',
+        'type',
+        'event',
+        'events',
+        'event_id',
+        'eventId',
+        'message_id',
+        'messageId',
+        'nonce',
+        'order_sn',
+        'orderSn',
+        'orders',
+        'item_id',
+        'itemId',
+        'item_ids',
+        'itemIds',
+        'model_id',
+        'modelId',
+        'model_ids',
+        'modelIds',
+      ]);
+      if (dataKeys.some((k) => forbiddenDataKeys.has(k))) {
+        return { ok: false, reason: 'data_has_event_fields' };
+      }
+      for (const value of Object.values(dataObj)) {
+        if (value == null) continue;
+        const valueType = typeof value;
+        if (valueType === 'string' || valueType === 'number' || valueType === 'boolean') continue;
+        return { ok: false, reason: 'data_non_primitive' };
       }
     } else {
       return { ok: false, reason: 'data_invalid' };
