@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
 import { logger } from '../../shared/logger';
-import { verifyWebhookSignature } from './webhookSignature';
+import { extractTimestampSec, verifyWebhookSignature } from './webhookSignature';
 import {
   extractEventId,
   extractEventType,
@@ -10,36 +10,7 @@ import {
   extractShopId,
   normalizePayload,
 } from './webhookUtils';
-import { recordWebhookReceived } from './webhookMetrics';
-
-/**
- * Detect Shopee verify/test pings that should return 200 without full validation.
- * Shopee verify pushes have minimal payloads like {shop_id, code} or {"test":true}
- * and lack event-specific fields (event_type, data, message_id, etc.).
- */
-function isVerifyPing(payload: unknown): { isPing: boolean; reason?: string } {
-  if (!payload || typeof payload !== 'object') return { isPing: false };
-  const obj = payload as Record<string, unknown>;
-  const keys = Object.keys(obj);
-
-  // Shopee verify ping: {shop_id, code} or similar minimal structures
-  const eventIndicators = [
-    'event_type', 'eventType', 'type', 'event', 'topic', 'message_type',
-    'data', 'message_id', 'msg_id', 'item_id', 'order_sn',
-  ];
-  const hasEventData = eventIndicators.some((k) => k in obj && obj[k] !== undefined && obj[k] !== null);
-
-  if (!hasEventData && keys.length <= 5) {
-    return { isPing: true, reason: `no_event_fields:keys=[${keys.join(',')}]` };
-  }
-
-  // Also detect explicit test payloads
-  if ('test' in obj && keys.length <= 3) {
-    return { isPing: true, reason: 'test_payload' };
-  }
-
-  return { isPing: false };
-}
+import { recordWebhookIgnored, recordWebhookReceived } from './webhookMetrics';
 
 type HeaderMap = Record<string, string | string[] | undefined>;
 
@@ -102,6 +73,58 @@ function isVerifyBypassAllowed(input: {
   return allowlist.has(ip.toLowerCase());
 }
 
+function getPayloadKeys(payload: unknown, limit: number = 40): string[] {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return [];
+  return Object.keys(payload as Record<string, unknown>).slice(0, limit);
+}
+
+function isVerifyPingCandidate(payload: unknown): { ok: boolean; reason: string } {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return { ok: false, reason: 'not_object' };
+  const obj = payload as Record<string, unknown>;
+  const keys = Object.keys(obj);
+  if (keys.length === 0) return { ok: true, reason: 'empty_object' };
+
+  const eventIndicators = new Set([
+    'event_type',
+    'eventType',
+    'message_type',
+    'topic',
+    'type',
+    'event',
+    'data',
+    'message_id',
+    'messageId',
+    'event_id',
+    'eventId',
+    'nonce',
+  ]);
+  if (keys.some((k) => eventIndicators.has(k))) return { ok: false, reason: 'has_event_fields' };
+
+  const allowed = new Set([
+    'shop_id',
+    'shopId',
+    'code',
+    'success',
+    'message',
+    'timestamp',
+    'ts',
+    'time',
+    'event_time',
+    'eventTime',
+    'created_at',
+    'createdAt',
+  ]);
+  const unknown = keys.filter((k) => !allowed.has(k));
+  if (unknown.length > 0) return { ok: false, reason: 'unexpected_fields' };
+
+  // Estrutura típica de verify/ping: { shop_id, code } (com ou sem timestamp)
+  if ('shop_id' in obj || 'shopId' in obj || 'code' in obj) {
+    return { ok: true, reason: 'simple_verify_shape' };
+  }
+
+  return { ok: false, reason: 'not_verify_shape' };
+}
+
 export class ShopeeWebhookService {
   constructor(private prisma: PrismaClient) {}
 
@@ -109,19 +132,27 @@ export class ShopeeWebhookService {
     const rawBody = input.rawBody ? input.rawBody.toString('utf8') : JSON.stringify(input.body ?? {});
     const payload = normalizePayload(input.body);
 
-    // --- Verify Ping Detection (BEFORE signature validation) ---
-    const pingCheck = isVerifyPing(payload);
-    if (pingCheck.isPing) {
+    // Verify ping/test do console (sem bypass): responder 200 e não persistir.
+    const pingCandidate = isVerifyPingCandidate(payload);
+    if (pingCandidate.ok && rawBody.length <= 2048) {
+      const ts = extractTimestampSec({
+        headers: input.headers,
+        payload,
+        headerCandidates: ['x-shopee-timestamp', 'x-timestamp', 'timestamp'],
+      });
+      recordWebhookIgnored('verify_ping');
       logger.info('webhook_verify_ping', {
+        reason: pingCandidate.reason,
         ip: input.ip,
         userAgent: input.userAgent,
-        reason: pingCheck.reason,
-        bodySize: rawBody.length,
+        rawBodyLength: rawBody.length,
+        payloadKeys: getPayloadKeys(payload),
+        timestamp_source: ts.source,
+        timestampSec: ts.timestampSec,
       });
       return { ok: true, status: 200, reason: 'verify_ping' };
     }
 
-    // --- Full signature validation for real events ---
     const verification = verifyWebhookSignature({
       headers: input.headers,
       rawBody,
@@ -136,6 +167,8 @@ export class ShopeeWebhookService {
           ip: input.ip,
           userAgent: input.userAgent,
           timestampSec: verification.timestampSec ?? null,
+          timestamp_source: verification.timestampSource ?? null,
+          skewSec: verification.skewSec ?? null,
         });
         return { ok: true, status: 200, reason: 'verify_bypass' };
       }
@@ -144,10 +177,9 @@ export class ShopeeWebhookService {
         signature: verification.signature ? '[present]' : '[missing]',
         ip: input.ip,
         timestampSec: verification.timestampSec ?? null,
-        nowSec: Math.floor(Date.now() / 1000),
-        skewSec: verification.timestampSec
-          ? Math.abs(Math.floor(Date.now() / 1000) - verification.timestampSec)
-          : null,
+        timestamp_source: verification.timestampSource ?? null,
+        skewSec: verification.skewSec ?? null,
+        payloadKeys: getPayloadKeys(payload),
       });
       return { ok: false, status: 401, error: 'assinatura inválida', reason: verification.reason };
     }

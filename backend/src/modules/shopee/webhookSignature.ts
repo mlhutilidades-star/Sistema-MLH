@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { logger } from '../../shared/logger';
 
 type HeaderMap = Record<string, string | string[] | undefined>;
 
@@ -128,6 +129,25 @@ function getHeaderValue(headers: HeaderMap, candidates: string[]): string | null
   return null;
 }
 
+function getHeaderValueWithName(
+  headers: HeaderMap,
+  candidates: string[]
+): { name: string; value: string } | null {
+  for (const name of candidates) {
+    const target = name.toLowerCase();
+    for (const [k, v] of Object.entries(headers)) {
+      if (k.toLowerCase() !== target) continue;
+      if (Array.isArray(v)) {
+        const first = v.find((item) => typeof item === 'string' && item.trim());
+        if (first) return { name: k, value: first.trim() };
+      } else if (typeof v === 'string' && v.trim()) {
+        return { name: k, value: v.trim() };
+      }
+    }
+  }
+  return null;
+}
+
 function parseTimestamp(raw: string | number | null | undefined): number | null {
   if (raw === null || raw === undefined) return null;
   const cleaned = String(raw).trim();
@@ -138,44 +158,52 @@ function parseTimestamp(raw: string | number | null | undefined): number | null 
   return n > 1_000_000_000_000 ? Math.floor(n / 1000) : Math.floor(n);
 }
 
-function extractPayloadTimestamp(payload: unknown): { value: string | number; source: string } | null {
+function extractPayloadTimestampWithKey(
+  payload: unknown
+): { value: string | number; key: string; location: 'payload' | 'payload.data' } | null {
   if (!payload || typeof payload !== 'object') return null;
   const anyPayload = payload as Record<string, any>;
 
-  // Direct top-level fields (in priority order)
-  const directCandidates: Array<[string, unknown]> = [
-    ['timestamp', anyPayload.timestamp],
-    ['ts', anyPayload.ts],
-    ['time', anyPayload.time],
-    ['event_time', anyPayload.event_time],
-    ['eventTime', anyPayload.eventTime],
-    ['created_at', anyPayload.created_at],
-    ['createdAt', anyPayload.createdAt],
-    ['update_time', anyPayload.update_time],
-  ];
-  for (const [key, val] of directCandidates) {
-    if ((typeof val === 'string' && val.trim()) || typeof val === 'number') {
-      return { value: val, source: `body.${key}` };
-    }
+  const directKeys = ['timestamp', 'ts', 'time', 'event_time', 'eventTime', 'created_at', 'createdAt'];
+  for (const key of directKeys) {
+    const value = anyPayload[key];
+    if (typeof value === 'string' || typeof value === 'number') return { value, key, location: 'payload' };
   }
 
-  // Nested under .data
-  if (anyPayload.data && typeof anyPayload.data === 'object') {
-    const nestedCandidates: Array<[string, unknown]> = [
-      ['data.timestamp', anyPayload.data.timestamp],
-      ['data.ts', anyPayload.data.ts],
-      ['data.time', anyPayload.data.time],
-      ['data.event_time', anyPayload.data.event_time],
-      ['data.created_at', anyPayload.data.created_at],
-    ];
-    for (const [key, val] of nestedCandidates) {
-      if ((typeof val === 'string' && val.trim()) || typeof val === 'number') {
-        return { value: val, source: key };
-      }
+  const nested = anyPayload.data;
+  if (nested && typeof nested === 'object') {
+    for (const key of directKeys) {
+      const value = (nested as any)[key];
+      if (typeof value === 'string' || typeof value === 'number') return { value, key, location: 'payload.data' };
     }
   }
 
   return null;
+}
+
+export function extractTimestampSec(input: {
+  headers: HeaderMap;
+  payload?: unknown;
+  headerCandidates: string[];
+}): { timestampSec: number | null; source: string } {
+  const fromHeader = getHeaderValueWithName(input.headers, input.headerCandidates);
+  if (fromHeader) {
+    const parsed = parseTimestamp(fromHeader.value);
+    if (parsed) return { timestampSec: parsed, source: `header:${fromHeader.name.toLowerCase()}` };
+  }
+
+  const fromPayload = extractPayloadTimestampWithKey(input.payload);
+  if (fromPayload) {
+    const parsed = parseTimestamp(fromPayload.value);
+    if (parsed) return { timestampSec: parsed, source: `${fromPayload.location}:${fromPayload.key}` };
+  }
+
+  return { timestampSec: null, source: 'missing' };
+}
+
+function extractPayloadTimestamp(payload: unknown): string | number | null {
+  const extracted = extractPayloadTimestampWithKey(payload);
+  return extracted ? extracted.value : null;
 }
 
 function extractPayloadNonce(payload: unknown): string | number | null {
@@ -384,6 +412,8 @@ export function verifyWebhookSignature(input: {
   reason?: string;
   signature?: string;
   timestampSec?: number | null;
+  timestampSource?: string;
+  skewSec?: number | null;
   nonce?: string | null;
   match?: SignatureMatch;
 } {
@@ -407,55 +437,44 @@ export function verifyWebhookSignature(input: {
   }
 
   const signature = normalizeSignature(signatureRaw);
-
-  // --- Timestamp resolution with diagnostics ---
-  const timestampHeader = getHeaderValue(input.headers, config.timestampHeaderCandidates);
-  let timestampSec: number | null = null;
-  let timestampSource: string = 'none';
-
-  if (timestampHeader) {
-    timestampSec = parseTimestamp(timestampHeader);
-    if (timestampSec) timestampSource = 'header';
-  }
-  if (!timestampSec) {
-    const bodyTs = extractPayloadTimestamp(input.payload);
-    if (bodyTs) {
-      timestampSec = parseTimestamp(bodyTs.value);
-      if (timestampSec) timestampSource = bodyTs.source;
-    }
-  }
-
+  const extractedTimestamp = extractTimestampSec({
+    headers: input.headers,
+    payload: input.payload,
+    headerCandidates: config.timestampHeaderCandidates,
+  });
+  let timestampSec = extractedTimestamp.timestampSec;
+  const timestampSource = extractedTimestamp.source;
   const nowSec = Math.floor(Date.now() / 1000);
   const skewSec = timestampSec ? Math.abs(nowSec - timestampSec) : null;
-  const timestampStale = timestampSec && skewSec !== null
-    && Number.isFinite(config.maxSkewSec) && config.maxSkewSec > 0
-    && skewSec > config.maxSkewSec;
 
-  // Log timestamp diagnostics
-  if (typeof globalThis !== 'undefined') {
-    try {
-      const { logger: tsLogger } = require('../../shared/logger');
-      tsLogger.info('webhook_timestamp_diag', {
-        timestampSource,
-        timestampSec,
-        nowSec,
-        skewSec,
-        maxSkewSec: config.maxSkewSec,
-        decision: !timestampSec ? 'missing' : (timestampStale ? 'stale_will_try_hmac' : 'ok'),
-      });
-    } catch { /* ignore */ }
+  const logHits = String(process.env.SHOPEE_WEBHOOK_LOG_HITS || '').trim().toLowerCase() === 'true';
+  if (logHits) {
+    logger.info('webhook_timestamp_check', {
+      timestamp_source: timestampSource,
+      timestampSec: timestampSec ?? null,
+      nowSec,
+      skewSec,
+      decision: !timestampSec && config.requireTimestamp ? 'missing' : skewSec !== null && skewSec > config.maxSkewSec ? 'out_of_range' : 'ok',
+      requireTimestamp: config.requireTimestamp,
+      maxSkewSec: config.maxSkewSec,
+    });
   }
 
   if (config.requireTimestamp && !timestampSec) {
     if (config.allowUnsigned) {
-      return { ok: true, reason: 'timestamp_missing_allow_unsigned' };
+      return { ok: true, reason: 'timestamp_missing_allow_unsigned', timestampSec, timestampSource, skewSec };
     }
-    return { ok: false, reason: 'timestamp_missing', signature };
+    return { ok: false, reason: 'timestamp_missing', signature, timestampSec, timestampSource, skewSec };
   }
 
-  // NOTE: timestamp freshness check moved AFTER HMAC verification.
-  // If HMAC is valid the event is authentic (timestamp is bound into the HMAC),
-  // so we accept it even if the timestamp is stale (e.g. Shopee test pushes).
+  if (timestampSec) {
+    if (Number.isFinite(config.maxSkewSec) && config.maxSkewSec > 0 && (skewSec ?? 0) > config.maxSkewSec) {
+      if (config.allowUnsigned) {
+        return { ok: true, reason: 'timestamp_out_of_range_allow_unsigned', signature, timestampSec, timestampSource, skewSec };
+      }
+      return { ok: false, reason: 'timestamp_out_of_range', signature, timestampSec, timestampSource, skewSec };
+    }
+  }
 
   const nonceHeader = getHeaderValue(input.headers, config.nonceHeaderCandidates);
   const nonceFallback = extractPayloadNonce(input.payload);
@@ -500,20 +519,12 @@ export function verifyWebhookSignature(input: {
       const { hex, base64 } = computeHmac(config.secret, candidate.base, format);
       const normalized = signature.toLowerCase();
       if (safeEqual(normalized, hex.toLowerCase())) {
-        // HMAC matched — event is authentic. Warn if timestamp stale but accept.
-        if (timestampStale) {
-          try {
-            const { logger: tsWarnLogger } = require('../../shared/logger');
-            tsWarnLogger.warn('webhook_timestamp_stale_accepted', {
-              skewSec, timestampSec, maxSkewSec: config.maxSkewSec,
-              label: candidate.label,
-            });
-          } catch { /* ignore */ }
-        }
         return {
           ok: true,
           signature,
           timestampSec,
+          timestampSource,
+          skewSec,
           nonce,
           match: {
             label: candidate.label,
@@ -524,19 +535,12 @@ export function verifyWebhookSignature(input: {
         };
       }
       if (safeEqual(signature, base64)) {
-        if (timestampStale) {
-          try {
-            const { logger: tsWarnLogger } = require('../../shared/logger');
-            tsWarnLogger.warn('webhook_timestamp_stale_accepted', {
-              skewSec, timestampSec, maxSkewSec: config.maxSkewSec,
-              label: candidate.label,
-            });
-          } catch { /* ignore */ }
-        }
         return {
           ok: true,
           signature,
           timestampSec,
+          timestampSource,
+          skewSec,
           nonce,
           match: {
             label: candidate.label,
@@ -550,15 +554,17 @@ export function verifyWebhookSignature(input: {
   }
 
   if (config.allowUnsigned) {
-    return { ok: true, reason: 'signature_mismatch_allow_unsigned', signature, timestampSec, nonce };
+    return {
+      ok: true,
+      reason: 'signature_mismatch_allow_unsigned',
+      signature,
+      timestampSec,
+      timestampSource,
+      skewSec,
+      nonce,
+    };
   }
-
-  // If timestamp was stale, report that as the reason (HMAC base changes with timestamp)
-  if (timestampStale) {
-    return { ok: false, reason: 'timestamp_out_of_range', signature, timestampSec, nonce };
-  }
-
-  return { ok: false, reason: 'signature_mismatch', signature, timestampSec, nonce };
+  return { ok: false, reason: 'signature_mismatch', signature, timestampSec, timestampSource, skewSec, nonce };
 }
 
 export function signWebhookPayload(input: {
