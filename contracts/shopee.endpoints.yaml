@@ -1,0 +1,375 @@
+# Contrato de Integração — Shopee Open Platform
+# Gerado em: 2026-02-11
+# Regra: integração só pode mapear campos definidos neste contrato.
+# Campos/endpoints com TODO devem ser confirmados antes de ir para produção.
+
+auth:
+  type: "partner_key_hmac_sha256"
+  flow: "oauth_like_shop_auth"
+  env_vars:
+    - name: SHOPEE_PARTNER_ID
+      type: int64
+      required: true
+      description: "ID da aplicação parceira"
+    - name: SHOPEE_PARTNER_KEY
+      type: string
+      required: true
+      secret: true
+      description: "Chave secreta para HMAC-SHA256"
+    - name: SHOPEE_SHOP_ID
+      type: int64
+      required: true
+      description: "ID da loja autorizada"
+    - name: SHOPEE_ACCESS_TOKEN
+      type: string
+      required: true
+      secret: true
+      description: "Token de acesso (curta duração)"
+    - name: SHOPEE_REFRESH_TOKEN
+      type: string
+      required: true
+      secret: true
+      description: "Token para renovação"
+    - name: SHOPEE_API_HOST
+      type: string
+      required: true
+      default: "partner.shopeemobile.com"
+      todo: "Confirmar host correto para Brasil"
+    - name: SHOPEE_API_VERSION
+      type: string
+      required: true
+      default: "v2"
+      todo: "Confirmar se migrou para v3"
+  signature:
+    algorithm: "HMAC-SHA256"
+    base_string_formula: "partner_id + api_path + timestamp + access_token + shop_id"
+    key: "SHOPEE_PARTNER_KEY"
+
+common_params:
+  description: "Parâmetros obrigatórios em toda request (query string)"
+  params:
+    - name: partner_id
+      type: int64
+      required: true
+    - name: timestamp
+      type: int
+      required: true
+      description: "Unix timestamp em segundos"
+    - name: access_token
+      type: string
+      required: true
+    - name: shop_id
+      type: int64
+      required: true
+    - name: sign
+      type: string
+      required: true
+      description: "HMAC-SHA256 calculado"
+
+endpoints:
+
+  # ──────────────────────────────────────────────
+  # AUTH
+  # ──────────────────────────────────────────────
+
+  - name: getAuthUrl
+    method: GET
+    path: "/api/v2/shop/auth_partner"
+    description: "Gerar URL de autorização para redirecionar o seller"
+    requiredParams:
+      - name: partner_id
+        type: int64
+      - name: timestamp
+        type: int
+      - name: sign
+        type: string
+      - name: redirect
+        type: string
+        description: "URL callback"
+    responseFields: []
+    notes: "Redireciona o navegador; não retorna JSON."
+    todos:
+      - "Confirmar se path é /api/v2/shop/auth_partner ou houve migração"
+
+  - name: getAccessToken
+    method: POST
+    path: "/api/v2/auth/token/get"
+    description: "Trocar auth code por access_token + refresh_token"
+    requiredParams:
+      - name: code
+        type: string
+      - name: shop_id
+        type: int64
+      - name: partner_id
+        type: int64
+    responseFields:
+      - name: access_token
+        type: string
+        jsonPath: "response.access_token"
+        required: true
+      - name: refresh_token
+        type: string
+        jsonPath: "response.refresh_token"
+        required: true
+      - name: expire_in
+        type: int
+        jsonPath: "response.expire_in"
+        required: true
+    todos:
+      - "Capturar sample real"
+
+  - name: refreshAccessToken
+    method: POST
+    path: "/api/v2/auth/access_token/get"
+    description: "Renovar access_token usando refresh_token"
+    requiredParams:
+      - name: refresh_token
+        type: string
+      - name: shop_id
+        type: int64
+      - name: partner_id
+        type: int64
+    responseFields:
+      - name: access_token
+        type: string
+        jsonPath: "response.access_token"
+        required: true
+      - name: refresh_token
+        type: string
+        jsonPath: "response.refresh_token"
+        required: true
+      - name: expire_in
+        type: int
+        jsonPath: "response.expire_in"
+        required: true
+    todos: []
+
+  # ──────────────────────────────────────────────
+  # PEDIDOS
+  # ──────────────────────────────────────────────
+
+  - name: listOrders
+    method: GET
+    path: "/api/v2/order/get_order_list"
+    description: "Listar pedidos por período e/ou status"
+    requiredParams:
+      - name: time_range_field
+        type: string
+        description: "'create_time' ou 'update_time'"
+      - name: time_from
+        type: int
+        description: "Unix timestamp início (segundos)"
+      - name: time_to
+        type: int
+        description: "Unix timestamp fim (segundos)"
+      - name: page_size
+        type: int
+        description: "1–100"
+    optionalParams:
+      - name: cursor
+        type: string
+      - name: order_status
+        type: string
+        description: "UNPAID|READY_TO_SHIP|PROCESSED|SHIPPED|COMPLETED|IN_CANCEL|CANCELLED|INVOICE_PENDING"
+      - name: response_optional_fields
+        type: string
+    responseFields:
+      - name: order_sn
+        type: string
+        jsonPath: "response.order_list[].order_sn"
+        required: true
+      - name: order_status
+        type: string
+        jsonPath: "response.order_list[].order_status"
+        required: true
+      - name: create_time
+        type: int
+        jsonPath: "response.order_list[].create_time"
+        required: true
+      - name: update_time
+        type: int
+        jsonPath: "response.order_list[].update_time"
+        required: true
+      - name: more
+        type: boolean
+        jsonPath: "response.more"
+        required: true
+      - name: next_cursor
+        type: string
+        jsonPath: "response.next_cursor"
+        required: false
+    todos:
+      - "Confirmar status INVOICE_PENDING no Brasil"
+      - "Confirmar janela máxima de tempo (15 dias?)"
+
+  - name: getOrderDetail
+    method: GET
+    path: "/api/v2/order/get_order_detail"
+    description: "Buscar detalhes de um ou mais pedidos"
+    requiredParams:
+      - name: order_sn_list
+        type: string
+        description: "Lista de order_sn separados por vírgula (máx. 50)"
+    optionalParams:
+      - name: response_optional_fields
+        type: string
+        description: "Ex.: buyer_user_id,item_list,pay_time,total_amount"
+    responseFields:
+      - name: order_sn
+        type: string
+        jsonPath: "response.order_list[].order_sn"
+        required: true
+      - name: order_status
+        type: string
+        jsonPath: "response.order_list[].order_status"
+        required: true
+      - name: create_time
+        type: int
+        jsonPath: "response.order_list[].create_time"
+        required: true
+      - name: update_time
+        type: int
+        jsonPath: "response.order_list[].update_time"
+        required: true
+      - name: pay_time
+        type: int
+        jsonPath: "response.order_list[].pay_time"
+        required: false
+      - name: buyer_user_id
+        type: int64
+        jsonPath: "response.order_list[].buyer_user_id"
+        required: false
+      - name: total_amount
+        type: float
+        jsonPath: "response.order_list[].total_amount"
+        required: true
+      - name: currency
+        type: string
+        jsonPath: "response.order_list[].currency"
+        required: true
+      - name: item_id
+        type: int64
+        jsonPath: "response.order_list[].item_list[].item_id"
+        required: true
+      - name: item_sku
+        type: string
+        jsonPath: "response.order_list[].item_list[].item_sku"
+        required: true
+      - name: model_sku
+        type: string
+        jsonPath: "response.order_list[].item_list[].model_sku"
+        required: false
+      - name: model_quantity_purchased
+        type: int
+        jsonPath: "response.order_list[].item_list[].model_quantity_purchased"
+        required: true
+      - name: model_discounted_price
+        type: float
+        jsonPath: "response.order_list[].item_list[].model_discounted_price"
+        required: true
+      - name: model_original_price
+        type: float
+        jsonPath: "response.order_list[].item_list[].model_original_price"
+        required: false
+    todos:
+      - "Confirmar lista completa de response_optional_fields"
+      - "Capturar sample real"
+
+  # ──────────────────────────────────────────────
+  # FINANCEIRO — "VALOR DA RENDA"
+  # ──────────────────────────────────────────────
+
+  - name: getEscrowDetail
+    method: GET
+    path: "/api/v2/payment/get_escrow_detail"
+    description: "Obter detalhes financeiros (escrow) de um pedido — fonte do VALOR DA RENDA"
+    requiredParams:
+      - name: order_sn
+        type: string
+    responseFields:
+      - name: order_sn
+        type: string
+        jsonPath: "response.order_sn"
+        required: true
+      - name: escrow_amount
+        type: float
+        jsonPath: "response.escrow_amount"
+        required: true
+        todo: "Confirmar se este é o campo correto para VALOR DA RENDA"
+      - name: buyer_total_amount
+        type: float
+        jsonPath: "response.buyer_total_amount"
+        required: false
+        todo: "Confirmar campo"
+      - name: commission_fee
+        type: float
+        jsonPath: "response.commission_fee"
+        required: false
+        todo: "Confirmar campo"
+      - name: service_fee
+        type: float
+        jsonPath: "response.service_fee"
+        required: false
+        todo: "Confirmar campo"
+      - name: currency
+        type: string
+        jsonPath: "response.currency"
+        required: true
+    todos:
+      - "Confirmar endpoint correto (path e disponibilidade no Brasil)"
+      - "Confirmar campo exato para VALOR DA RENDA (escrow_amount? seller_due_amount?)"
+      - "Capturar sample real"
+
+  # ──────────────────────────────────────────────
+  # ADS — Gasto por SKU/Dia
+  # ──────────────────────────────────────────────
+
+  - name: getAdsSpendBySkuDaily
+    method: GET
+    path: "TODO: confirmar path — provável /api/v2/ads/get_daily_report"
+    description: "Obter relatório diário de gasto de ads por item/SKU"
+    requiredParams:
+      - name: start_date
+        type: string
+        description: "YYYY-MM-DD"
+        todo: "Confirmar formato de data"
+      - name: end_date
+        type: string
+        description: "YYYY-MM-DD"
+        todo: "Confirmar formato de data"
+    optionalParams:
+      - name: report_type
+        type: string
+        todo: "Confirmar valores possíveis (item, keyword, campaign)"
+    responseFields:
+      - name: date
+        type: string
+        jsonPath: "response.report_list[].date"
+        required: true
+        todo: "Confirmar campo"
+      - name: item_id
+        type: int64
+        jsonPath: "response.report_list[].item_id"
+        required: true
+        todo: "Confirmar campo"
+      - name: sku
+        type: string
+        jsonPath: "response.report_list[].TODO_sku_field"
+        required: true
+        todo: "Confirmar se campo SKU existe ou se precisa mapear via item_id"
+      - name: spend
+        type: float
+        jsonPath: "response.report_list[].spend"
+        required: true
+        todo: "Confirmar campo"
+      - name: currency
+        type: string
+        jsonPath: "response.report_list[].currency"
+        required: true
+        todo: "Confirmar campo"
+    todos:
+      - "Confirmar se módulo de Ads está disponível via API no Brasil"
+      - "Confirmar path exato do endpoint"
+      - "Confirmar se granularidade por SKU existe ou apenas item_id"
+      - "Confirmar todos os campos do response"
+      - "Capturar sample real"

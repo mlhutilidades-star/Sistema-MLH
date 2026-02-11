@@ -1,0 +1,44 @@
+{
+  "_meta": {
+    "description": "PLACEHOLDER — Sample de resposta de GET /api/v2/order/get_order_detail",
+    "source": "Shopee Open Platform API v2",
+    "captured_at": null,
+    "TODO": "Substituir por sample REAL capturado da API Shopee. Este JSON é um placeholder estruturado."
+  },
+  "error": "",
+  "message": "",
+  "response": {
+    "order_list": [
+      {
+        "order_sn": "TODO_REAL_ORDER_SN",
+        "order_status": "COMPLETED",
+        "create_time": 1707609600,
+        "update_time": 1707696000,
+        "pay_time": 1707610200,
+        "buyer_user_id": 0,
+        "shipping_carrier": "TODO_CARRIER_NAME",
+        "total_amount": 0.00,
+        "currency": "BRL",
+        "item_list": [
+          {
+            "item_id": 0,
+            "item_name": "TODO_ITEM_NAME",
+            "item_sku": "TODO_ITEM_SKU",
+            "model_id": 0,
+            "model_sku": "TODO_MODEL_SKU",
+            "model_quantity_purchased": 0,
+            "model_discounted_price": 0.00,
+            "model_original_price": 0.00,
+            "_TODO": "Confirmar todos os campos acima com sample real"
+          }
+        ],
+        "escrow_amount": "TODO_CONFIRM_IF_EXISTS_HERE",
+        "_TODO_fields": [
+          "Verificar se 'escrow_amount' aparece neste endpoint ou apenas em get_escrow_detail",
+          "Verificar campos adicionais disponíveis via response_optional_fields"
+        ]
+      }
+    ]
+  },
+  "request_id": "TODO_REAL_REQUEST_ID"
+}

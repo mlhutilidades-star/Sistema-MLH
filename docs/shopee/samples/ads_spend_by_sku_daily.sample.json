@@ -1,0 +1,28 @@
+{
+  "_meta": {
+    "description": "PLACEHOLDER — Sample de resposta do endpoint de relatório diário de Ads por SKU",
+    "source": "Shopee Open Platform API v2 — Marketing/Ads module",
+    "captured_at": null,
+    "TODO": "Substituir por sample REAL capturado da API Shopee. Este JSON é um placeholder estruturado. O endpoint e os campos abaixo NÃO estão confirmados."
+  },
+  "error": "",
+  "message": "",
+  "response": {
+    "report_list": [
+      {
+        "date": "2026-02-10",
+        "item_id": 0,
+        "TODO_sku_field": "TODO_CONFIRM_FIELD_NAME_FOR_SKU",
+        "impressions": 0,
+        "clicks": 0,
+        "spend": 0.00,
+        "conversions": 0,
+        "gmv": 0.00,
+        "currency": "BRL",
+        "_TODO": "Confirmar todos os campos acima com sample real. O campo 'sku' pode não existir — pode ser necessário mapear via item_id → sku usando endpoint de produto."
+      }
+    ],
+    "_TODO_pagination": "Confirmar se há paginação (cursor/offset) neste endpoint"
+  },
+  "request_id": "TODO_REAL_REQUEST_ID"
+}

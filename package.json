@@ -1,0 +1,20 @@
+{
+  "name": "sistema-mlh",
+  "version": "0.1.0",
+  "description": "Sistema de integração multi-marketplace (Mercado Livre, Shopee, TikTok Shop)",
+  "private": true,
+  "scripts": {
+    "validate:contracts": "ts-node scripts/validateShopeeContract.ts",
+    "build": "npm run validate:contracts && tsc",
+    "test": "echo \"TODO: implementar testes\" && exit 0"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0",
+    "ts-node": "^10.9.0",
+    "@types/node": "^20.0.0",
+    "@types/js-yaml": "^4.0.0"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0"
+  }
+}
